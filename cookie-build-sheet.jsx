@@ -308,7 +308,8 @@ function matchStyle(cur) {
 // ---- Add-ins ---------------------------------------------------------------
 // `styles` = which presets an add-in is classic for (drives the badge).
 // `short` = one-line prep (always shown). `prep` = full method (shown in the
-// process step at Detailed). `prepSteps` = the tickable mise-en-place list.
+// process step at Detailed). `prepSteps` = the per-ingredient prep detail; the
+// Prep timeline gets its *ordering* and dependencies from ADDIN_PLAN below.
 // `finish: true` = goes on top after/at the end, not folded into the dough.
 const ADDINS = [
   { id: "chips", icon: "🍫", label: "Chocolate chips/chunks", styles: ["hotrod", "thin", "chewy", "tollhouse", "doublechoc"],
@@ -364,6 +365,30 @@ const ADDINS = [
     prep: "Press nonpareils or jimmies onto the dough balls before baking (or onto frosting after). Roll the whole ball for full coverage; they don't bleed if you use jimmies rather than soft confetti quins.",
     prepSteps: ["Roll the balls in sprinkles before baking", "Use jimmies (they don't bleed)", "Or save them for frosting after"] },
 ];
+
+// When each add-in's prep happens on the bake timeline, and what it has to wait
+// on. `phase` keys into the backbone built by buildTimeline(); `dur` flags a
+// step that takes real time (toast, soak); `dep` is the call-out that makes the
+// order non-obvious — e.g. toasted nuts must COOL before they can be folded in,
+// soaked fruit must be DRY. The make-ahead preps (walnuts, raisins) live in
+// `ahead` because they're folded into the dough *before* the chill, so they
+// can't be done during it. Drives the prep time-graph and the ordered checklist.
+const ADDIN_PLAN = {
+  chips:     { phase: "mix",   do: "Chop a bar / measure the chips", note: "reserve a handful for the tops" },
+  cocoa:     { phase: "mix",   do: "Sift in with the flour" },
+  walnuts:   { phase: "ahead", do: "Toast 8–10 min, then cool & chop", dur: "~15 min", dep: "must cool before folding — hot nuts melt the dough & smear the chocolate" },
+  oats:      { phase: "mix",   do: "Measure (toast ahead for deeper flavour)" },
+  raisins:   { phase: "ahead", do: "Soak 10–15 min, drain & pat dry", dur: "~15 min", dep: "pat dry before folding or they steam the dough" },
+  pb:        { phase: "mix",   do: "Have it ready to cream with the butter" },
+  coconut:   { phase: "mix",   do: "Measure; folds in with the oats" },
+  spice:     { phase: "mix",   do: "Whisk into the flour (bloom in the butter if browning)" },
+  toffee:    { phase: "mix",   do: "Measure; folds in with the chocolate" },
+  espresso:  { phase: "mix",   do: "Dissolve into the egg & vanilla" },
+  zest:      { phase: "mix",   do: "Zest & rub into the sugar", dep: "before you cream, so the oils perfume the whole batch" },
+  flakysalt: { phase: "cool",  do: "Pinch on warm, out of the oven", dep: "while the tops are tacky — baked in, it just dissolves" },
+  sprinkles: { phase: "shape", do: "Roll the dough balls in sprinkles" },
+};
+
 const VERBOSITY = ["Terse", "Standard", "Detailed"];
 
 // Cocoa swaps 1:1 for flour. Natural cocoa is acidic (pairs with baking soda);
@@ -553,6 +578,124 @@ function buildSteps(p) {
 }
 
 // ---------------------------------------------------------------------------
+// Prep timeline — lays the butter and add-in prep out on the dough's own clock
+// so you can see, at a glance, what to start first and what has to finish
+// (cool, dry…) before it can go in. The numbered Process steps are unchanged;
+// this only re-orders the *prep* into a single dependency-aware line.
+// ---------------------------------------------------------------------------
+const PHASE_ORDER = ["ahead", "mix", "chill", "shape", "bake", "cool"];
+
+function buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins }) {
+  const sc = SCOOPS[scoop];
+  const hasChill = chillIdx > 0;
+  const aheadClock = method === "creamed" ? "~1 hr ahead" : method === "browned" ? "~20 min" : method === "sable" ? "stay cold" : "~10 min";
+
+  // Backbone phases with live clocks. `ahead` is the prep-staging column, so the
+  // dough's own timeline (the spine) doesn't start until `mix`.
+  const phases = [
+    { key: "ahead", label: "Ahead",  clock: aheadClock,               weight: 2 },
+    { key: "mix",   label: "Mix",    clock: "~15 min",                weight: 2.2 },
+    ...(hasChill ? [{ key: "chill", label: chillIdx === 3 ? "Cure" : "Chill", clock: chill.clock, weight: chillIdx === 3 ? 5 : chillIdx === 2 ? 4 : 3 }] : []),
+    { key: "shape", label: "Shape",  clock: "~10 min",                weight: 1.4 },
+    { key: "bake",  label: "Bake",   clock: `${sc.min}–${sc.max} min`, weight: 1.6 },
+    { key: "cool",  label: "Cool",   clock: "~15 min",                weight: 1.5 },
+  ];
+
+  // The dough's own backbone, one label per phase (the `ahead` column stays
+  // empty — that's where the ingredient prep lives).
+  const spine = {
+    mix:   method === "sable" ? "Rub cold butter in · bind" : method === "creamed" ? "Cream · egg · dry · fold" : "Whisk butter+sugar · egg · dry · fold",
+    chill: chillIdx === 3 ? "Cover & cure" : "Rest cold",
+    shape: "Scoop & space",
+    bake:  `${ovenF}°F`,
+    cool:  "Sheet → rack",
+  };
+
+  // Butter is its own track — the canonical "do this first" with a real
+  // dependency (it has to reach the right state before the dough can be mixed).
+  const butter = method === "creamed"
+    ? { do: "Soften the butter", dur: "~1 hr", dep: "to ~18°C/65°F & plastic — straight from the fridge it won't cream" }
+    : method === "browned"
+    ? { do: "Brown the butter, then cool", dur: "~20 min", dep: "cool until pliable, or it melts the sugar to soup" }
+    : method === "melted"
+    ? { do: "Melt the butter, cool slightly", dur: "~10 min" }
+    : { do: "Keep the butter cold & cubed", dep: "fridge-cold right up until you rub it into the flour" };
+
+  const tracks = [
+    { id: "_butter", icon: "🧈", label: "Butter", plan: { phase: "ahead", ...butter } },
+    ...addins
+      .map((a) => ({ id: a.id, icon: a.icon, label: a.label.replace(" (finish)", ""), plan: ADDIN_PLAN[a.id] }))
+      .filter((t) => t.plan),
+  ];
+
+  // Linearised: same prep, sorted into one do-this-then-that order (stable, so
+  // ties keep registry order). This is the explicit "linear order" view.
+  const ordered = tracks
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => (PHASE_ORDER.indexOf(a.t.plan.phase) - PHASE_ORDER.indexOf(b.t.plan.phase)) || (a.i - b.i))
+    .map((x) => x.t);
+
+  return { phases, spine, tracks, ordered };
+}
+
+// A horizontal Gantt of the prep: phases run left→right across the x-axis of
+// time; the dough spine is the top band; each ingredient sits under the moment
+// its prep happens, with its icon on the axis. Scrolls sideways on narrow
+// screens. Purely presentational — state (ticking) lives in the ordered list.
+function TimeGraph({ phases, spine, tracks, C, accent }) {
+  const cols = `96px ${phases.map((p) => `minmax(74px, ${p.weight}fr)`).join(" ")}`;
+  const line = (i) => (i === 0 ? "none" : `1px solid ${C.line}`);
+
+  const chip = (t) => (
+    <div style={{ background: C.paperDeep, border: `1px solid ${C.line}`, borderLeft: `3px solid ${accent}`, borderRadius: 8, padding: "5px 7px", width: "100%" }}>
+      <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.25, color: C.ink }}>{t.icon} {t.plan.do}</div>
+      {t.plan.dur && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: accent, fontWeight: 600, marginTop: 2 }}>⏱ {t.plan.dur}</div>}
+      {t.plan.dep && <div style={{ fontSize: 10.5, fontStyle: "italic", color: C.inkSoft, lineHeight: 1.3, marginTop: 2 }}>↳ {t.plan.dep}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+      <div style={{ minWidth: 96 + phases.length * 92, display: "grid", gridTemplateColumns: cols, rowGap: 6, alignItems: "stretch" }}>
+        {/* x-axis: phase labels + clocks */}
+        <div />
+        {phases.map((p, i) => (
+          <div key={p.key} style={{ borderLeft: line(i), padding: "0 6px 4px" }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 }}>{p.label}</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: accent, fontWeight: 600 }}>{p.clock}</div>
+          </div>
+        ))}
+
+        {/* the dough's own timeline */}
+        <div style={{ display: "flex", alignItems: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: C.inkSoft }}>Dough</div>
+        {phases.map((p, i) => (
+          <div key={p.key} style={{ borderLeft: line(i), padding: "0 4px", display: "flex", alignItems: "center" }}>
+            {spine[p.key] && (
+              <div style={{ background: accent, color: C.onAccent, borderRadius: 7, padding: "6px 8px", fontSize: 11.5, fontWeight: 600, lineHeight: 1.2, width: "100%" }}>{spine[p.key]}</div>
+            )}
+          </div>
+        ))}
+
+        {/* one lane per ingredient — icon rides the axis at its prep time */}
+        {tracks.map((t) => (
+          <React.Fragment key={t.id}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 600, color: C.ink }}>
+              <span style={{ fontSize: 15 }}>{t.icon}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+            </div>
+            {phases.map((p, i) => (
+              <div key={p.key} style={{ borderLeft: line(i), padding: "0 4px", display: "flex", alignItems: "center" }}>
+                {t.plan.phase === p.key ? chip(t) : null}
+              </div>
+            ))}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 export default function CookieBuildSheet() {
   const D0 = STYLE_BY_ID[DEFAULT_STYLE].set;
   // master scale
@@ -663,6 +806,8 @@ export default function CookieBuildSheet() {
   const cookieCount = v.doughWeight > 0 ? Math.max(1, Math.floor(v.doughWeight / sc.g)) : 0;
   const dialSteps = useMemo(() => buildSteps({ method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flour, chill, chillIdx, sodaShare, ovenF, scoop, addins: selectedAddins, cocoa, verbosity, styleId: activeStyle }),
     [method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flourIdx, chillIdx, sodaShare, ovenF, scoop, addinSel, cocoaOn, cocoaMode, cocoaPct, verbosity, activeStyle]);
+  const timeline = useMemo(() => buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins: selectedAddins }),
+    [method, chillIdx, scoop, ovenF, addinSel]);
 
   // Live profile chips
   const spreadScore = (sugarPct - 70) * 0.5 + (butterPct - 55) * 0.6
@@ -915,35 +1060,44 @@ export default function CookieBuildSheet() {
           )}
         </div>
 
-        {/* Mise en place — tickable prep checklist */}
-        {selectedAddins.length > 0 && (
-          <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>Mise en place — add-in prep</span>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>tick as you go</span>
-            </div>
-            <div style={{ fontSize: 12.5, color: C.inkSoft, fontStyle: "italic", marginBottom: 10 }}>Get these ready before you mix — soggy or unprepped add-ins throw off the dough.</div>
-            {selectedAddins.map((t) => (
-              <div key={t.id} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 5 }}>{t.icon} {t.label}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {t.prepSteps.map((step, i) => {
-                    const key = `${t.id}:${i}`;
-                    const done = !!prepDone[key];
-                    return (
-                      <button key={key} onClick={() => togglePrep(key)} style={{
-                        display: "flex", gap: 9, alignItems: "flex-start", textAlign: "left", cursor: "pointer",
-                        background: "transparent", border: "none", padding: "1px 0", fontFamily: "'Fraunces', serif", color: C.ink }}>
-                        <span style={{ width: 16, height: 16, borderRadius: 5, border: `2px solid ${done ? C.butter : C.line}`, background: done ? C.butter : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.onAccent, lineHeight: 1, marginTop: 2 }}>{done ? "✓" : ""}</span>
-                        <span style={{ fontSize: 13.5, lineHeight: 1.4, color: done ? C.inkSoft : C.ink, textDecoration: done ? "line-through" : "none", opacity: done ? 0.7 : 1 }}>{step}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+        {/* Prep timeline — the add-in prep, laid out on the dough's own clock */}
+        <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>Prep timeline — what to do when</span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>left → right = first → last</span>
           </div>
-        )}
+          <div style={{ fontSize: 12.5, color: C.inkSoft, fontStyle: "italic", marginBottom: 11 }}>
+            The top band is the dough's own clock; each ingredient sits under the moment its prep happens. <span style={{ fontStyle: "normal" }}>⏱</span> marks a step that takes time — start it at the left of its block. <span style={{ fontStyle: "normal" }}>↳</span> is what it has to finish (cool, dry…) before it can go in.
+          </div>
+
+          <TimeGraph phases={timeline.phases} spine={timeline.spine} tracks={timeline.tracks} C={C} accent={C.butter} />
+
+          {/* Same prep, linearised into one order — tick as you go */}
+          <div style={{ borderTop: `1.5px solid ${C.line}`, marginTop: 12, paddingTop: 11 }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.2, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600, marginBottom: 9 }}>In order · tick as you go</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {timeline.ordered.map((t, i) => {
+                const key = `plan:${t.id}`;
+                const done = !!prepDone[key];
+                return (
+                  <button key={key} onClick={() => togglePrep(key)} style={{
+                    display: "flex", gap: 10, alignItems: "flex-start", textAlign: "left", cursor: "pointer",
+                    background: "transparent", border: "none", padding: "1px 0", fontFamily: "'Fraunces', serif", color: C.ink }}>
+                    <span style={{ width: 17, height: 17, borderRadius: 5, border: `2px solid ${done ? C.butter : C.line}`, background: done ? C.butter : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.onAccent, lineHeight: 1, marginTop: 2 }}>{done ? "✓" : ""}</span>
+                    <span style={{ flex: 1, lineHeight: 1.4 }}>
+                      <span style={{ fontSize: 14, color: done ? C.inkSoft : C.ink, textDecoration: done ? "line-through" : "none", opacity: done ? 0.7 : 1 }}>
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: C.bake, marginRight: 7 }}>{String(i + 1).padStart(2, "0")}</span>
+                        {t.icon} {t.plan.do}
+                        {t.plan.dur && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, color: C.butter, fontWeight: 600 }}> · ⏱ {t.plan.dur}</span>}
+                      </span>
+                      {t.plan.dep && <span style={{ display: "block", fontSize: 12, fontStyle: "italic", color: C.inkSoft, marginTop: 1 }}>↳ {t.plan.dep}</span>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
         </>}
 
         {/* Display options: verbosity + dark mode */}
