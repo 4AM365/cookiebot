@@ -1,0 +1,54 @@
+{
+  "corpus": "cookiebot reference notes",
+  "description": "RAG chunks distilled from purchased baking-science references. Source books are git-ignored; these derived notes are the committable work product.",
+  "chunking": {
+    "target_tokens": 800,
+    "overlap_tokens": 100,
+    "token_estimate": "chars/4 (no tokenizer dependency)"
+  },
+  "totals": {
+    "books": 3,
+    "notes": 748,
+    "chunks": 1737,
+    "tokens_est": 1009973,
+    "cookie_relevant_chunks": 1040
+  },
+  "books": [
+    {
+      "slug": "bressanini-scienza-della-pasticceria",
+      "title": "La scienza della pasticceria",
+      "author": "Dario Bressanini",
+      "year": 2014,
+      "lang": "it",
+      "relevance": "core",
+      "notes": 95,
+      "chunks": 174,
+      "tokens_est": 104570,
+      "cookie_chunks": 174
+    },
+    {
+      "slug": "cauvain-technology-of-breadmaking",
+      "title": "Technology of Breadmaking",
+      "author": "Stanley P. Cauvain & Linda S. Young",
+      "year": 1998,
+      "lang": "en",
+      "relevance": "general",
+      "notes": 13,
+      "chunks": 378,
+      "tokens_est": 209460,
+      "cookie_chunks": 218
+    },
+    {
+      "slug": "mcgee-on-food-and-cooking",
+      "title": "On Food and Cooking: The Science and Lore of the Kitchen",
+      "author": "Harold McGee",
+      "year": 1984,
+      "lang": "en",
+      "relevance": "high",
+      "notes": 640,
+      "chunks": 1185,
+      "tokens_est": 695943,
+      "cookie_chunks": 648
+    }
+  ]
+}
