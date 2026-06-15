@@ -20,6 +20,30 @@ const FONTS = `
 @keyframes riseIn { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform:none;} }
 `;
 
+// GeoCities skin stylesheet — injected only when the page is in the geocities
+// vibe. !important so it overrides the hardcoded inline fonts/borders.
+const GEO_CSS = `
+@keyframes geoBlink { 50% { opacity: 0; } }
+@keyframes geoRainbow { 0%{color:#ff0040} 20%{color:#ff8c00} 40%{color:#ffe000} 60%{color:#00c853} 80%{color:#2962ff} 100%{color:#aa00ff} }
+.geocities, .geocities * { font-family: "Comic Sans MS","Comic Sans","Chalkboard SE",cursive !important; }
+.geocities .geo-counter, .geocities .geo-counter * { font-family: "Courier New", monospace !important; }
+.geocities button { border-style: outset !important; }
+.geocities { background-repeat: repeat !important; }
+.geocities.geo-dark { background-image:
+  radial-gradient(1.5px 1.5px at 20px 24px,#ffffff,transparent),
+  radial-gradient(1px 1px at 64px 52px,#aaeeff,transparent),
+  radial-gradient(1.5px 1.5px at 120px 88px,#ffffff,transparent),
+  radial-gradient(1px 1px at 150px 30px,#ffd0d0,transparent) !important;
+  background-size: 180px 130px !important; }
+.geocities.geo-light { background-image:
+  radial-gradient(3px 3px at 22px 24px,rgba(255,0,255,0.20),transparent),
+  radial-gradient(3px 3px at 92px 70px,rgba(0,0,238,0.16),transparent),
+  radial-gradient(3px 3px at 150px 34px,rgba(255,140,0,0.18),transparent) !important;
+  background-size: 175px 120px !important; }
+.geo-blink { animation: geoBlink 1.1s steps(1) infinite; }
+.geo-rainbow { animation: geoRainbow 5s linear infinite; font-weight: 900; }
+`;
+
 // ---- Theming ---------------------------------------------------------------
 // Warm bakery palette. Same keys in both themes. `onAccent` is light in BOTH —
 // it's the text/icon colour placed on butter/butterDeep/choc accent surfaces.
@@ -891,6 +915,7 @@ export default function CookieBuildSheet() {
   const [envApplied, setEnvApplied] = useState(true); // fold the recalibration into the recipe
 
   // Inherit the page's vibe + brightness → palette (standalone defaults to jdm).
+  const geocities = vibe === "geocities"; // drives the retro banner + GEO_CSS skin
   const C = vibe === "geocities" ? (dark ? THEMES.geoDark : THEMES.geoLight)
           : vibe === "modern"    ? (dark ? THEMES.dark : THEMES.light)
           : (dark ? THEMES.jdmDark : THEMES.jdmLight);
@@ -1065,9 +1090,25 @@ export default function CookieBuildSheet() {
 
   return (
     <ThemeCtx.Provider value={C}>
-    <div style={{ background: C.paper, minHeight: "100vh", padding: "28px 16px 60px", fontFamily: "'Fraunces', serif", color: C.ink, colorScheme: dark ? "dark" : "light", backgroundImage: C.glow, transition: "background .25s ease, color .25s ease" }}>
+    <div className={geocities ? `geocities ${dark ? "geo-dark" : "geo-light"}` : undefined} style={{ background: C.paper, minHeight: "100vh", padding: "28px 16px 60px", fontFamily: "'Fraunces', serif", color: C.ink, colorScheme: dark ? "dark" : "light", backgroundImage: C.glow, transition: "background .25s ease, color .25s ease" }}>
       <style>{FONTS}</style>
+      {geocities && <style>{GEO_CSS}</style>}
       <div style={{ width: "100%", maxWidth: 880, margin: "0 auto", animation: "riseIn .5s ease" }}>
+        {/* GeoCities banner — only when the page is in the geocities vibe */}
+        {geocities && (
+          <div style={{ marginBottom: 16, textAlign: "center" }}>
+            <marquee scrollamount="6" style={{ background: "#000080", color: "#00ff66", border: "3px ridge #c0c0c0", padding: "5px 0", fontWeight: 700, fontSize: 14 }}>
+              ✨🍪 Welcome to Will&apos;s Fantastic Cookie HomePage!! 🍪✨ &nbsp; Best viewed in Netscape Navigator 4.0 at 800×600 &nbsp; ✨ Don&apos;t forget to sign my guestbook!! ✨
+            </marquee>
+            <div style={{ marginTop: 9, display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", alignItems: "center", fontSize: 13 }}>
+              <span className="geo-blink" style={{ color: C.choc, fontWeight: 900, letterSpacing: 1 }}>🚧 UNDER CONSTRUCTION 🚧</span>
+              <span className="geo-counter" style={{ background: "#000", color: "#00ff00", border: "2px inset #00ff00", padding: "2px 7px", letterSpacing: 4, fontWeight: 700 }}>
+                🍪 Visitors: 0013372
+              </span>
+              <span className="geo-rainbow" style={{ fontWeight: 900 }}>~ * Yum! * ~</span>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div style={{ borderBottom: `2px solid ${C.ink}`, paddingBottom: 14, marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
           <h1 style={{ margin: 0, fontSize: 40, fontWeight: 900, letterSpacing: -1, lineHeight: 0.95 }}>Cookies</h1>
