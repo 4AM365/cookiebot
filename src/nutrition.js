@@ -75,9 +75,9 @@ export function resolveMacroKey(name) {
 
 // items: [{ key?, k?, g }]. `key` (a macro key) wins; otherwise `k` (free text)
 // is resolved. Items without a numeric, positive weight are ignored. Returns
-// macros normalised to a 100 g serving, plus the total weighed mass, or null if
-// nothing weighable was supplied.
-export function macrosPer100g(items) {
+// macros for the whole batch, plus the total weighed mass, or null if nothing
+// weighable was supplied.
+function totals(items) {
   const tot = { kcal: 0, carb: 0, fat: 0, protein: 0, sugar: 0 };
   let mass = 0;
   for (const it of items || []) {
@@ -91,12 +91,25 @@ export function macrosPer100g(items) {
     tot.protein += m.protein * f; tot.sugar += m.sugar * f;
     mass += g;
   }
-  if (mass <= 0) return null;
-  const k = 100 / mass;
+  return mass > 0 ? { tot, mass } : null;
+}
+
+// Macros for one `servingGrams` portion of the batch (e.g. a scooped cookie),
+// plus the batch's total weighed mass. Null if nothing weighable was supplied.
+export function macrosForServing(items, servingGrams) {
+  const t = totals(items);
+  if (!t || !(servingGrams > 0)) return null;
+  const k = servingGrams / t.mass;
   const r1 = (x) => Math.round(x * k * 10) / 10;
   return {
-    kcal: Math.round(tot.kcal * k),
-    carb: r1(tot.carb), fat: r1(tot.fat), protein: r1(tot.protein), sugar: r1(tot.sugar),
-    mass: Math.round(mass),
+    kcal: Math.round(t.tot.kcal * k),
+    carb: r1(t.tot.carb), fat: r1(t.tot.fat), protein: r1(t.tot.protein), sugar: r1(t.tot.sugar),
+    mass: Math.round(t.mass), serving: Math.round(servingGrams),
   };
+}
+
+// Macros normalised to a 100 g serving, plus the total weighed mass.
+export function macrosPer100g(items) {
+  const t = totals(items);
+  return t ? macrosForServing(items, 100) : null;
 }

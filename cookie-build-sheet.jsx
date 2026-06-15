@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useContext, useEffect } from "react";
 import { QUALITY_AXES, qualities, solveWithin, solveConforming, IDENTITY_KEYS } from "./src/cookie-model.js";
-import { macrosPer100g } from "./src/nutrition.js";
+import { macrosPer100g, macrosForServing } from "./src/nutrition.js";
 
 // ============================================================================
 // Cookie Dashboard — drive the *qualities* (spread, chew vs. crisp vs. cakey,
@@ -1100,7 +1100,13 @@ export default function CookieBuildSheet() {
 
   // A fixed recipe overrides the dial-driven output.
   const groups = specialRecipe ? specialRecipe.groups : dialGroups;
-  const macros = useMemo(() => macrosPer100g(groups.flatMap((g) => g.items)), [groups]);
+  // Dial recipes are scooped, so key the macros to the scoop weight (per cookie);
+  // fixed recipes aren't drop cookies, so they stay per-100g.
+  const macros = useMemo(
+    () => specialRecipe
+      ? macrosPer100g(groups.flatMap((g) => g.items))
+      : macrosForServing(groups.flatMap((g) => g.items), sc.g),
+    [groups, specialRecipe, sc.g]);
   const STEPS = specialRecipe ? specialRecipe.steps : dialSteps;
   const profile = specialRecipe ? specialRecipe.profile : dialProfile;
   const ovenC = fToC(ovenF);
@@ -1574,12 +1580,12 @@ export default function CookieBuildSheet() {
               </>}
         </div>
 
-        {/* Nutrition — gram-weighted macros normalised to a 100g serving */}
+        {/* Nutrition — per cookie (keyed to the scoop) for dial recipes; per-100g for fixed */}
         {macros && (
           <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 14, padding: "16px 18px", marginBottom: 28 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-              <span style={{ fontSize: 16, fontWeight: 600 }}>Nutrition — per 100g</span>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>estimated · dough as mixed</span>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>{specialRecipe ? "Nutrition — per 100g" : "Nutrition — per cookie"}</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>{specialRecipe ? "estimated · dough as mixed" : `est. · ${sc.label.toLowerCase()} scoop · ${sc.g}g · makes ≈${cookieCount}`}</span>
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {[
@@ -1596,7 +1602,7 @@ export default function CookieBuildSheet() {
               ))}
             </div>
             <div style={{ fontSize: 12, color: C.inkSoft, fontStyle: "italic", marginTop: 11 }}>
-              Mass-balance of the formula's ingredients (USDA FoodData Central densities). Baking drives off water, so a baked cookie runs a little more energy-dense per 100g.
+              Mass-balance of the formula's ingredients (USDA FoodData Central densities){specialRecipe ? "" : `, split across ≈${cookieCount} ${sc.label.toLowerCase()} cookies of ${sc.g}g raw dough`}. Add-ins priced "to taste" aren't counted; baking drives off some water.
             </div>
           </div>
         )}
