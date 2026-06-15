@@ -1,4 +1,6 @@
-import React, { useState, useMemo, useContext } from "react";
+import React, { useState, useMemo, useContext, useEffect } from "react";
+import { QUALITY_AXES, qualities, solveWithin, solveConforming, IDENTITY_KEYS } from "./src/cookie-model.js";
+import { macrosPer100g } from "./src/nutrition.js";
 
 // ============================================================================
 // Cookie Dashboard — drive the *qualities* (spread, chew vs. crisp vs. cakey,
@@ -36,6 +38,36 @@ const THEMES = {
     glow: "radial-gradient(circle at 20% 10%, rgba(224,138,90,0.10), transparent 42%), radial-gradient(circle at 85% 0%, rgba(224,164,74,0.10), transparent 45%)",
     mixBg: "rgba(224,138,90,0.10)",
   },
+  // GeoCities skin — clashing 1998 palette mapped onto the cookie accent keys.
+  geoLight: {
+    paper: "#cfcfee", paperDeep: "#bcbce4", ink: "#000000", inkSoft: "#000080",
+    butter: "#ff00ff", butterDeep: "#c800c8", choc: "#0000ee", bake: "#ff6a00",
+    line: "#808080", card: "#ffffcc", onAccent: "#ffffff",
+    glow: "none",
+    mixBg: "rgba(255,0,255,0.10)",
+  },
+  geoDark: {
+    paper: "#000018", paperDeep: "#000010", ink: "#00ff66", inkSoft: "#33ccff",
+    butter: "#ff00ff", butterDeep: "#aa00aa", choc: "#ffe000", bake: "#ff8c00",
+    line: "#5454aa", card: "#0a0a30", onAccent: "#ffffff",
+    glow: "none",
+    mixBg: "rgba(255,224,0,0.10)",
+  },
+  // JDM — the blog's default vibe (white / purple), so the widget stays coherent.
+  jdmLight: {
+    paper: "#ffffff", paperDeep: "#ece9f5", ink: "#1a1730", inkSoft: "#6b6688",
+    butter: "#6d28d9", butterDeep: "#5b21b6", choc: "#7c3aed", bake: "#a78bfa",
+    line: "#d8d3ea", card: "#faf9fd", onAccent: "#ffffff",
+    glow: "radial-gradient(circle at 20% 10%, rgba(109,40,217,0.05), transparent 40%), radial-gradient(circle at 85% 0%, rgba(167,139,250,0.06), transparent 45%)",
+    mixBg: "rgba(109,40,217,0.07)",
+  },
+  jdmDark: {
+    paper: "#14101e", paperDeep: "#26213a", ink: "#f5f3fc", inkSoft: "#9b95b5",
+    butter: "#a78bfa", butterDeep: "#7c3aed", choc: "#c084fc", bake: "#c084fc",
+    line: "#3a3358", card: "#1e1830", onAccent: "#14101e",
+    glow: "radial-gradient(circle at 20% 10%, rgba(167,139,250,0.10), transparent 42%), radial-gradient(circle at 85% 0%, rgba(192,132,252,0.10), transparent 45%)",
+    mixBg: "rgba(167,139,250,0.10)",
+  },
 };
 const ThemeCtx = React.createContext(THEMES.light);
 const useC = () => useContext(ThemeCtx);
@@ -45,6 +77,82 @@ function round(n, dp = 0) {
   return Math.round(n * f) / f;
 }
 const fToC = (f) => round(((f - 32) * 5) / 9 / 5) * 5; // °F -> nearest 5°C
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+// ---------------------------------------------------------------------------
+// Kitchen environment — altitude, humidity & room temperature recalibration
+// ---------------------------------------------------------------------------
+// Where and when you bake changes a cookie dough, and each factor maps to a
+// distinct, well-understood mechanism:
+//   • Altitude → chemical leavening (+ sugar, + bake). Lower air pressure lets
+//     the leavening's gas expand more, so cookies dome then collapse — cut the
+//     soda/powder. Sugar melts and makes the dough flow, worsening the spread,
+//     so trim it too; and bake hotter/shorter to set the structure before it
+//     over-spreads. (Standard high-altitude baking guidance, from ~3000 ft.)
+//   • Humidity → spread & texture. Sugars (brown especially) and flour are
+//     hygroscopic, so a humid day slackens the dough and it bakes flatter and
+//     cakier — chilling and a touch more flour pull it back.
+//   • Room temperature → butter/dough temperature, which governs spread. Warm
+//     butter softens and the cookie spreads thin and greasy; cold dough holds a
+//     tall, soft-centred shape. A warm kitchen wants a chill before baking.
+const ENV_BASE_RH = 60;             // % RH the base formula assumes
+const ENV_ALT_THRESHOLD_FT = 3000;  // high-altitude adjustments begin here
+
+function computeEnvAdjust({ elevFt, humidityPct, roomTempF }) {
+  const ftAbove = Math.max(0, elevFt - ENV_ALT_THRESHOLD_FT);
+  // Altitude → leavening: trim ~0.6% of the dose per 100 ft above the threshold.
+  const leavenFactor = clamp(1 - (ftAbove / 100) * 0.006, 0.75, 1);
+  // Altitude → sugar: reduce up to 5% of flour, capped (less flow = less spread).
+  const sugarDeltaPct = -clamp((ftAbove / 1000) * 1, 0, 5);
+  // Altitude → hotter, shorter bake.
+  const ovenBumpF = elevFt > 6000 ? 25 : elevFt > ENV_ALT_THRESHOLD_FT ? 15 : 0;
+  // Humidity → how much wetter than baseline the air (and so the dough) is.
+  const humid = humidityPct - ENV_BASE_RH;
+  // Room temp → butter softness → spread risk; warm or humid wants a chill.
+  const warmKitchen = roomTempF >= 75;
+  const recommendChill = humid > 12 || warmKitchen;
+  const spreadRisk = roomTempF >= 80 ? "high" : roomTempF >= 72 ? "moderate" : roomTempF <= 62 ? "low" : "low–moderate";
+  return { elevFt, humidityPct, roomTempF, ftAbove, leavenFactor, sugarDeltaPct, ovenBumpF,
+    humid, warmKitchen, recommendChill, spreadRisk };
+}
+
+// ZIP → lat/lon (Zippopotam.us) → elevation + that day's mean humidity
+// (Open-Meteo). All three are free, key-less, CORS-enabled browser APIs.
+async function fetchKitchenEnv(zip, dateISO) {
+  const z = String(zip).trim();
+  if (!/^\d{5}$/.test(z)) throw new Error("Enter a 5-digit US ZIP code.");
+  const geoR = await fetch(`https://api.zippopotam.us/us/${z}`);
+  if (!geoR.ok) throw new Error(`No US location found for ZIP ${z}.`);
+  const geo = await geoR.json();
+  const place = geo.places && geo.places[0];
+  if (!place) throw new Error(`No US location found for ZIP ${z}.`);
+  const lat = Number(place.latitude), lon = Number(place.longitude);
+  const placeName = `${place["place name"]}, ${place["state abbreviation"] || place.state}`;
+  const day = 864e5;
+  const today = new Date().toISOString().slice(0, 10);
+  const earliest = new Date(Date.now() - 90 * day).toISOString().slice(0, 10);
+  const latest = new Date(Date.now() + 16 * day).toISOString().slice(0, 10);
+  // Open-Meteo's forecast model serves ~90 days back to 16 days ahead; older
+  // dates come from the historical archive instead.
+  const wxBase = (dateISO >= earliest && dateISO <= latest)
+    ? "https://api.open-meteo.com/v1/forecast"
+    : "https://archive-api.open-meteo.com/v1/archive";
+  const [elevR, wxR] = await Promise.all([
+    fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`),
+    fetch(`${wxBase}?latitude=${lat}&longitude=${lon}&hourly=relative_humidity_2m&start_date=${dateISO}&end_date=${dateISO}&timezone=auto`),
+  ]);
+  if (!elevR.ok) throw new Error("Couldn't fetch elevation for that location.");
+  if (!wxR.ok) throw new Error("Couldn't fetch the weather for that date.");
+  const elevJ = await elevR.json();
+  const wxJ = await wxR.json();
+  const elevM = Array.isArray(elevJ.elevation) ? elevJ.elevation[0] : elevJ.elevation;
+  const rh = ((wxJ.hourly && wxJ.hourly.relative_humidity_2m) || []).filter((x) => x != null);
+  if (elevM == null) throw new Error("Couldn't read elevation for that location.");
+  if (!rh.length) throw new Error("No humidity data for that date — try one within ~2 weeks.");
+  const humidityPct = Math.round(rh.reduce((a, b) => a + b, 0) / rh.length);
+  return { place: placeName, elevM: Math.round(elevM), elevFt: Math.round(elevM * 3.28084),
+    humidityPct, date: dateISO };
+}
 
 // ---- Fixed (non-dialed) constants -----------------------------------------
 // Chemical leavening, expressed as a % of flour, at the extremes of the
@@ -152,10 +260,15 @@ const STYLES = [
 const STYLE_CATS = ["The house", "American classics", "European & pastry"];
 const STYLE_BY_ID = Object.fromEntries(STYLES.map((s) => [s.id, s]));
 const DEFAULT_STYLE = "hotrod";
-// The fingerprint used to detect which preset (if any) the dials currently match.
-// eggForm + scoop are user prefs, like a yeast form — set by a style but not matched.
-const STYLE_KEYS = ["sugarPct", "brownPct", "butterPct", "eggPct", "flourIdx",
-  "leaven", "sodaShare", "saltPct", "chillIdx", "ovenF", "method"];
+// Each preset is now a *quality target*: precompute the six-slider profile that
+// its hand-authored recipe bakes up to (via the forward model), so selecting a
+// style drives the sliders and the inverse re-derives a matching formula.
+STYLES.forEach((s) => {
+  const qq = qualities(s.set);
+  s.q = Object.fromEntries(QUALITY_AXES.map((a) => [a.key, Math.round(qq[a.key])]));
+});
+// Identity (flour/method/egg/leavening) for a style — what binding locks.
+const identityOf = (set) => Object.fromEntries(IDENTITY_KEYS.map((k) => [k, set[k]]));
 
 // ---- Beyond the dials: fixed recipes --------------------------------------
 // These cookies break the dial model — flourless, twice-baked, or built on a
@@ -300,10 +413,8 @@ const SPECIAL_STYLES = [
 ];
 const SPECIAL_BY_ID = Object.fromEntries(SPECIAL_STYLES.map((s) => [s.id, s]));
 
-function matchStyle(cur) {
-  const hit = STYLES.find((s) => STYLE_KEYS.every((k) => s.set[k] === cur[k]));
-  return hit ? hit.id : "custom";
-}
+// (a style is no longer "matched" from the dials — it is an explicit binding;
+// see boundStyle. Freestyle uses classify() only for a "closest style" hint.)
 
 // ---- Add-ins ---------------------------------------------------------------
 // `styles` = which presets an add-in is classic for (drives the badge).
@@ -391,6 +502,17 @@ const ADDIN_PLAN = {
 
 const VERBOSITY = ["Terse", "Standard", "Detailed"];
 
+// Short, corpus-grounded notes for each quality slider (the inverse model turns
+// these targets into a formula — see src/cookie-model.js CITES).
+const QUALITY_WHY = {
+  spread: "How far the cookie flows in the oven. Free fat and melting sugar push it out; gluten, egg-set and a cold rest hold it in — the model trades these off to hit your target (McGee, fats & sugars; Bressanini, burro).",
+  crispness: "Chewy vs. crisp. Retained water, gluten and brown-sugar humectancy keep it bendy; white sugar drying to a glassy snap with little residual water makes it crisp (McGee, sugars).",
+  cakey: "Pale, tall puff. Baking powder lifts and holds, creamed air helps, a hot set traps it — while free fat and melting sugar flatten it (Bressanini, lievitazione & frolla montata).",
+  browning: "Surface colour & toasty flavour. Alkaline pH (baking soda), reducing sugars (brown/invert), heat and the long cure drive Maillard browning and caramelization (McGee, Maillard).",
+  sweetness: "Total sugar relative to flour — which also tenderises and feeds browning, not just sweetens (Bressanini, zuccheri).",
+  richness: "Butterfat (plus yolk) — tenderness and a melting crumb; the model raises fat to enrich, lowers it to lean out (Bressanini, burro).",
+};
+
 // Cocoa swaps 1:1 for flour. Natural cocoa is acidic (pairs with baking soda);
 // Dutched is alkalised and pH-neutral (pairs with baking powder).
 const COCOA_MODES = { natural: "Natural", dutch: "Dutched" };
@@ -465,7 +587,7 @@ function Dial({ label, value, min, max, step, onChange, readout, lo, hi, stops, 
 // ---------------------------------------------------------------------------
 function buildSteps(p) {
   const { method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct,
-    flour, chill, chillIdx, sodaShare, ovenF, scoop, addins, cocoa, verbosity } = p;
+    flour, chill, chillIdx, sodaShare, ovenF, scoop, addins, cocoa, verbosity, v, saltPct } = p;
   const ovenC = fToC(ovenF);
   const sc = SCOOPS[scoop];
   const eg = EGG_FORMS[eggForm];
@@ -481,33 +603,48 @@ function buildSteps(p) {
   if (method === "browned") {
     steps.push({ title: "Brown the butter", spec: "melt → foam → nutty-brown speckles · pour off · cool until pliable",
       why: "Melt the butter and keep cooking past melting: it foams, then the milk solids toast to brown flecks and a nutty, toffee aroma — that's the Maillard reaction on the milk proteins and sugars (McGee). Cooking also drives off ~15–20% of the butter's water, so a browned-butter cookie spreads less and tastes deeper.",
-      more: "You lost water, so the dough is drier — chill the browned butter back to a soft solid if you want to cream it, or use it warm-melted for maximum spread and chew." });
+      more: "You lost water, so the dough is drier — chill the browned butter back to a soft solid if you want to cream it, or use it warm-melted for maximum spread and chew.",
+      ing: [{ k: "Butter", g: round(v.butter), note: "to brown" }] });
   }
 
   if (sablage) {
     steps.push({ title: "Sablage — rub the cold butter into the dry", spec: `cold cubed butter (${butterPct}%) rubbed into flour + sugar + salt${leaven ? " + leavening" : ""} · until sandy`,
       why: `The sablé/frolla move: coat the flour in fat *before* any liquid. Cold butter rubbed into the dry waterproofs the flour so water can't reach the proteins and build gluten — the result is short, tender, sandy and snappable rather than chewy (Bressanini, pasta frolla). 'Sablé' literally means sandy.`,
-      more: "Keep everything cold and work fast — warm hands melt the butter into the flour and you lose the short, flaky texture." });
+      more: "Keep everything cold and work fast — warm hands melt the butter into the flour and you lose the short, flaky texture.",
+      ing: [{ k: "Cold butter", g: round(v.butter) }, { k: "White sugar", g: round(v.white) },
+        ...(v.brown > 0 ? [{ k: "Brown sugar", g: round(v.brown) }] : [])] });
   } else if (method === "creamed") {
     steps.push({ title: "Cream the butter & sugar", spec: `softened butter (≈18°C/65°F, ${butterPct}%) + both sugars · beat 3–5 min to pale & fluffy`,
       why: `Beat softened butter with the sugar until pale and fluffy. Creaming whips air into the plastic fat, and the sharp sugar crystals cut in those bubbles — they become the nuclei the leavening later inflates, so creaming is itself a leavening step and gives a lighter, more cakey lift (Bressanini; McGee).${brownPct > 0 ? " The brown sugar also brings moisture and a little acidity." : ""}`,
-      more: "Butter too warm and greasy won't hold the air; too cold and it won't cream. Stop when it's pale and noticeably fluffy." });
+      more: "Butter too warm and greasy won't hold the air; too cold and it won't cream. Stop when it's pale and noticeably fluffy.",
+      ing: [{ k: "Butter (soft)", g: round(v.butter) }, { k: "White sugar", g: round(v.white) },
+        ...(v.brown > 0 ? [{ k: "Brown sugar", g: round(v.brown) }] : [])] });
   } else {
     steps.push({ title: `Whisk the ${method === "browned" ? "browned " : "melted "}butter & sugar`, spec: `warm ${method === "browned" ? "browned " : "melted "}butter (${butterPct}%) + both sugars · whisk smooth · rest 10 min`,
       why: `Whisk the melted butter into both sugars — no aeration here, so you get a denser, chewier, more spread-prone dough than creaming. Resting 10 minutes lets the sugar begin dissolving, which gives that shiny, crackly top; undissolved sugar bakes sandier (McGee, sugars). Melted butter also frees its water to hydrate the flour, building a little more gluten for chew.`,
-      more: "The warmer the butter, the more it spreads. For the glossiest, crackliest top, dissolve the sugar fully — whisk, rest, whisk again." });
+      more: "The warmer the butter, the more it spreads. For the glossiest, crackliest top, dissolve the sugar fully — whisk, rest, whisk again.",
+      ing: [...(method === "browned" ? [] : [{ k: "Melted butter", g: round(v.butter) }]),
+        { k: "White sugar", g: round(v.white) },
+        ...(v.brown > 0 ? [{ k: "Brown sugar", g: round(v.brown) }] : [])] });
   }
 
   if (hasEgg) {
     steps.push({ title: "Beat in the egg & vanilla", spec: `egg (${eggPct}%, ${eg.label.toLowerCase()}) + vanilla · beat until emulsified`,
       why: `Add the egg and vanilla and beat until smooth and emulsified. You're on ${eg.label.toLowerCase()}: ${eggForm === "yolk" ? "yolks bring fat and lecithin (an emulsifier) for a silky, tender, moisture-holding chew" : eggForm === "white" ? "the extra white is protein and water, so it sets firmer and bakes crisper and more cakey" : "whole eggs balance binding and set"} (McGee, eggs).`,
-      more: "Scrape the bowl and beat until uniform — a broken emulsion bakes greasy and uneven." });
+      more: "Scrape the bowl and beat until uniform — a broken emulsion bakes greasy and uneven.",
+      ing: [{ k: `Egg — ${eg.label.toLowerCase()}`, g: round(v.egg), note: `~${round(v.egg / EGG_G, 1)} large` },
+        { k: "Vanilla", g: null, note: "1–2 tsp" }] });
   }
 
   const cocoaDry = cocoa && cocoa.on ? ` + sifted cocoa (${cocoa.pct}% of flour)` : "";
   steps.push({ title: "Whisk the dry ingredients", spec: `${flour.name.toLowerCase()}${cocoaDry}${leaven ? " + leavening" : ""} + salt · whisk to combine`,
     why: `Whisk the ${flour.name.toLowerCase()} (${flour.prot})${leaven ? ", the leavening," : ""} and salt together off to the side. Even dispersal stops soapy pockets of baking soda and pale/dark patches. ${cocoa && cocoa.on ? `Sift the cocoa in — it clumps. ${cocoa.mode === "natural" ? "Natural cocoa is acidic, so it reacts with the baking soda to brown harder and bloom the colour." : "Dutched cocoa is alkalised and pH-neutral, so it leans on the baking powder; with soda alone it tastes flat and over-browns."}` : ""}`,
-    more: `Choosing the flour is choosing the chew: at ${flour.name} (${flour.prot}) the protein — and so how hard you mix next — ${chewWord}.` });
+    more: `Choosing the flour is choosing the chew: at ${flour.name} (${flour.prot}) the protein — and so how hard you mix next — ${chewWord}.`,
+    ing: [{ k: flour.name, g: round(v.flourMass) },
+      ...(cocoa && cocoa.on ? [{ k: `Cocoa — ${cocoa.mode}`, g: round(cocoa.load) }] : []),
+      ...(leaven && v.soda > 0 ? [{ k: "Baking soda", g: round(v.soda, 1) }] : []),
+      ...(leaven && v.powder > 0 ? [{ k: "Baking powder", g: round(v.powder, 1) }] : []),
+      { k: "Salt", g: round(v.salt, 1) }] });
 
   if (sablage) {
     steps.push({ title: "Bring it together", spec: `${hasEgg ? "add the egg/yolk" : "add a splash of cream or water"} · press just until it clumps into a dough`,
@@ -523,7 +660,10 @@ function buildSteps(p) {
     const lines = folded.map((t) => `${t.icon} ${t.label} — ${verbosity >= 2 ? t.prep : t.short}`).join("\n");
     steps.push({ title: "Fold in the add-ins", spec: folded.map((t) => t.label).join(" · "),
       why: lines,
-      more: "Fold by hand just to distribute — overmixing now both toughens the dough and smears the chocolate. Reserve a few chips/nuts to press onto the tops." });
+      more: "Fold by hand just to distribute — overmixing now both toughens the dough and smears the chocolate. Reserve a few chips/nuts to press onto the tops.",
+      ing: folded.map((t) => t.id === "chips"
+        ? { k: `${t.icon} ${t.label}`, g: round(v.chips) }
+        : { k: `${t.icon} ${t.label}`, g: null, note: "to taste" }) });
   }
 
   // Chill / rest
@@ -572,7 +712,8 @@ function buildSteps(p) {
     : "";
   steps.push({ title: "Cool on the sheet, then move", spec: "5 min on the hot sheet · then a wire rack",
     why: `Let them sit 5 minutes on the hot sheet: carryover heat finishes the underdone centre and the cookie sets enough to lift without tearing. Then move to a rack so the bottoms don't steam soft against the pan.${finishLine}`,
-    more: "For the chewiest result, underbake slightly and let the carryover do the rest. They keep best airtight; a slice of bread in the tub keeps soft cookies soft." });
+    more: "For the chewiest result, underbake slightly and let the carryover do the rest. They keep best airtight; a slice of bread in the tub keeps soft cookies soft.",
+    ing: finishers.map((t) => ({ k: `${t.icon} ${t.label.replace(" (finish)", "")}`, g: null, note: "to finish" })) });
 
   return steps.map((s, i) => ({ ...s, n: String(i + 1).padStart(2, "0") }));
 }
@@ -697,52 +838,82 @@ function TimeGraph({ phases, spine, tracks, C, accent }) {
 
 // ---------------------------------------------------------------------------
 export default function CookieBuildSheet() {
-  const D0 = STYLE_BY_ID[DEFAULT_STYLE].set;
+  const D0 = STYLE_BY_ID[DEFAULT_STYLE];
   // master scale
   const [flourG, setFlourG] = useState(280);
-  // quality dials (initialised from the default style)
-  const [sugarPct, setSugarPct] = useState(D0.sugarPct);
-  const [brownPct, setBrownPct] = useState(D0.brownPct);
-  const [butterPct, setButterPct] = useState(D0.butterPct);
-  const [eggPct, setEggPct] = useState(D0.eggPct);
-  const [flourIdx, setFlourIdx] = useState(D0.flourIdx);
-  const [leaven, setLeaven] = useState(D0.leaven);
-  const [sodaShare, setSodaShare] = useState(D0.sodaShare);
-  const [saltPct, setSaltPct] = useState(D0.saltPct);
-  const [chillIdx, setChillIdx] = useState(D0.chillIdx);
-  const [ovenF, setOvenF] = useState(D0.ovenF);
-  // method / form / scoop
-  const [method, setMethod] = useState(D0.method);
-  const [eggForm, setEggForm] = useState(D0.eggForm);
-  const [scoop, setScoop] = useState(D0.scoop);
+  // The six quality sliders — what you drive. The recipe (amounts, method,
+  // flour, egg, leavening) is *solved* from them by the inverse model; you no
+  // longer set ingredient quantities directly.
+  const [q, setQ] = useState(D0.q);
+  const [scoop, setScoop] = useState(D0.set.scoop);
+  // Binary mode: bound to a style (its IDENTITY is locked; the sliders only tune
+  // levers within it) OR freestyle (boundStyle === null → the model is free to
+  // choose the identity too). See src/cookie-model.js.
+  const [boundStyle, setBoundStyle] = useState(DEFAULT_STYLE);
+  const solved = useMemo(() => boundStyle
+    ? solveWithin(q, identityOf(STYLE_BY_ID[boundStyle].set), { scoop })
+    : solveConforming(q, STYLES, { scoop }), [q, scoop, boundStyle]);
+  const recipe = solved.recipe;
+  const { sugarPct, brownPct, butterPct, eggPct, flourIdx, leaven,
+    sodaShare, saltPct, chillIdx, ovenF, method, eggForm } = recipe;
   // add-ins + cocoa
   const [addinSel, setAddinSel] = useState({ chips: true, flakysalt: true });
   const [cocoaMode, setCocoaMode] = useState("natural"); // natural | dutch
   const [cocoaPct, setCocoaPct] = useState(25);           // cocoa as % of flour
   const [prepDone, setPrepDone] = useState({});           // mise-en-place checklist
-  const [verbosity, setVerbosity] = useState(1);
-  const [dark, setDark] = useState(false);
+  const verbosity = 1; // steps are always succinct — the verbosity control was dropped
+  // Light/dark + vibe inherit from the host Quartz blog (`saved-theme` /
+  // `saved-vibe` on <html>); standalone → light + jdm.
+  const [dark, setDark] = useState(() => {
+    try { return document.documentElement.getAttribute("saved-theme") === "dark"; } catch { return false; }
+  });
+  const [vibe, setVibe] = useState(() => {
+    try { return document.documentElement.getAttribute("saved-vibe") || "jdm"; } catch { return "jdm"; }
+  });
+  useEffect(() => {
+    const onTheme = (e) => { if (e && e.detail && e.detail.theme) setDark(e.detail.theme === "dark"); };
+    const onVibe = (e) => { if (e && e.detail && e.detail.vibe) setVibe(e.detail.vibe); };
+    document.addEventListener("themechange", onTheme);
+    document.addEventListener("vibechange", onVibe);
+    return () => { document.removeEventListener("themechange", onTheme); document.removeEventListener("vibechange", onVibe); };
+  }, []);
   const [openStep, setOpenStep] = useState("01");
   const [special, setSpecial] = useState(null);           // a fixed recipe, or null
+  // kitchen environment (altitude + humidity for a ZIP/day, plus room temp)
+  const [zip, setZip] = useState("");
+  const [envDate, setEnvDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [roomTempInput, setRoomTempInput] = useState("72"); // value as typed, in `tempUnit`
+  const [tempUnit, setTempUnit] = useState("F");            // 'F' | 'C'
+  const [humidityManual, setHumidityManual] = useState(""); // blank = use the fetched value
+  const [envData, setEnvData] = useState(null);     // { place, elevFt, elevM, humidityPct, date }
+  const [envLoading, setEnvLoading] = useState(false);
+  const [envError, setEnvError] = useState("");
+  const [envApplied, setEnvApplied] = useState(true); // fold the recalibration into the recipe
 
-  const C = dark ? THEMES.dark : THEMES.light;
+  // Inherit the page's vibe + brightness → palette (standalone defaults to jdm).
+  const C = vibe === "geocities" ? (dark ? THEMES.geoDark : THEMES.geoLight)
+          : vibe === "modern"    ? (dark ? THEMES.dark : THEMES.light)
+          : (dark ? THEMES.jdmDark : THEMES.jdmLight);
 
   function applyStyle(id) {
     const s = STYLE_BY_ID[id];
     if (!s) return;
     setSpecial(null);
-    const k = s.set;
-    setSugarPct(k.sugarPct); setBrownPct(k.brownPct); setButterPct(k.butterPct);
-    setEggPct(k.eggPct); setFlourIdx(k.flourIdx); setLeaven(k.leaven);
-    setSodaShare(k.sodaShare); setSaltPct(k.saltPct); setChillIdx(k.chillIdx);
-    setOvenF(k.ovenF); setMethod(k.method); setEggForm(k.eggForm); setScoop(k.scoop);
+    setBoundStyle(id);     // bind to this style — its identity is now locked
+    setQ(s.q);             // drive the sliders to this style's quality profile
+    setScoop(s.set.scoop); // scoop size is a baker's choice the style suggests
     // double-choc implies the cocoa swap is on
     if (id === "doublechoc") setAddinSel((t) => ({ ...t, cocoa: true }));
+  }
+  function goFreestyle() {
+    setSpecial(null);
+    setBoundStyle(null);   // unbind — the model may now choose the identity too
   }
   function applySpecial(id) { setSpecial(id); setOpenStep("01"); }
   const toggleAddin = (id) => setAddinSel((t) => ({ ...t, [id]: !t[id] }));
   const togglePrep = (key) => setPrepDone((p) => ({ ...p, [key]: !p[key] }));
-  const activeStyle = matchStyle({ sugarPct, brownPct, butterPct, eggPct, flourIdx, leaven, sodaShare, saltPct, chillIdx, ovenF, method });
+  const activeStyle = boundStyle || "custom";
+  const freestyleNearest = (!boundStyle && !special) ? solved.style : null;
   const selectedAddins = ADDINS.filter((a) => addinSel[a.id]);
 
   const f = Math.max(0, Number(flourG) || 0);
@@ -756,38 +927,88 @@ export default function CookieBuildSheet() {
   const effFlour = f - cocoaLoad;                 // the flour left to build structure
   const cocoa = { on: cocoaOn, mode: cocoaMode, pct: cocoaPct, load: cocoaLoad, effFlour };
 
+  // Kitchen-environment recalibration. Room temperature is entered in °F or °C
+  // (converted to °F for the science). Humidity comes from the ZIP/day fetch but
+  // a manual entry overrides it — useful when a humidifier or HVAC makes the
+  // indoor air differ from outdoors. Altitude trims the leavening and sugar
+  // (folded into the live recipe once we have a humidity figure and "apply" is
+  // on, never over a fixed recipe); the oven bump, chill and butter-temperature
+  // advice are guidance the room temp and humidity always drive. Altitude needs
+  // a fetched elevation; without one it's treated as sea level.
+  const rtRaw = Number(roomTempInput);
+  const rtF = tempUnit === "C" ? rtRaw * 9 / 5 + 32 : rtRaw;
+  const rt = clamp(Number.isFinite(rtF) ? rtF : 70, 40, 110);
+  const rtAltUnit = tempUnit === "F" ? round((rt - 32) * 5 / 9, 1) : round(rt, 1); // the other-unit readout
+  const humidityUsed = humidityManual.trim() !== "" ? clamp(Number(humidityManual) || 0, 0, 100)
+    : (envData ? envData.humidityPct : null);
+  const humidityIsManual = humidityManual.trim() !== "";
+  const elevFtUsed = envData ? envData.elevFt : 0;
+  const condReady = humidityUsed != null;
+  const envAdj = useMemo(
+    () => (condReady ? computeEnvAdjust({ elevFt: elevFtUsed, humidityPct: humidityUsed, roomTempF: rt }) : null),
+    [condReady, elevFtUsed, humidityUsed, rt]
+  );
+  const envOn = !!(condReady && envApplied && !special);
+  const sugarPctEff = Math.max(0, round(sugarPct + (envOn ? envAdj.sugarDeltaPct : 0), 1));
+  const leavenEnvFactor = envOn ? envAdj.leavenFactor : 1;
+
+  async function runEnvFetch() {
+    setEnvLoading(true);
+    setEnvError("");
+    try {
+      setEnvData(await fetchKitchenEnv(zip, envDate));
+    } catch (e) {
+      setEnvData(null);
+      setEnvError(e.message || "Couldn't fetch conditions.");
+    } finally {
+      setEnvLoading(false);
+    }
+  }
+  // Switch the room-temp unit, converting the entered value so it stays the
+  // same physical temperature.
+  function switchTempUnit(u) {
+    if (u === tempUnit) return;
+    const n = Number(roomTempInput);
+    if (Number.isFinite(n) && roomTempInput.trim() !== "") {
+      const conv = u === "C" ? (n - 32) * 5 / 9 : n * 9 / 5 + 32;
+      setRoomTempInput(String(round(conv, 1)));
+    }
+    setTempUnit(u);
+  }
+
   const v = useMemo(() => {
-    const totalSugar = f * (sugarPct / 100);
+    const totalSugar = f * (sugarPctEff / 100);
     const brown = totalSugar * (brownPct / 100);
     const white = totalSugar - brown;
     const butter = f * (butterPct / 100);
     const egg = f * (eggPct / 100);
     const salt = f * (saltPct / 100);
-    const soda = leaven ? f * (SODA_MAX / 100) * (sodaShare / 100) : 0;
-    const powder = leaven ? f * (POWDER_MAX / 100) * (1 - sodaShare / 100) : 0;
+    const soda = leaven ? f * (SODA_MAX / 100) * (sodaShare / 100) * leavenEnvFactor : 0;
+    const powder = leaven ? f * (POWDER_MAX / 100) * (1 - sodaShare / 100) * leavenEnvFactor : 0;
     const chips = addinSel.chips ? f * (CHIPS_PCT / 100) : 0;
     const flourMass = f - cocoaLoad;
     const doughWeight = flourMass + cocoaLoad + totalSugar + butter + egg + soda + powder + chips;
     return { totalSugar, brown, white, butter, egg, salt, soda, powder, chips, flourMass, doughWeight };
-  }, [f, sugarPct, brownPct, butterPct, eggPct, saltPct, leaven, sodaShare, addinSel.chips, cocoaLoad]);
+  }, [f, sugarPctEff, brownPct, butterPct, eggPct, saltPct, leaven, sodaShare, addinSel.chips, cocoaLoad, leavenEnvFactor]);
 
   const specialDef = special ? SPECIAL_BY_ID[special] : null;
   const specialRecipe = useMemo(() => (specialDef ? specialDef.recipe(f) : null), [special, f]);
 
-  const sodaPct = leaven ? round(SODA_MAX * (sodaShare / 100), 2) : 0;
-  const powderPct = leaven ? round(POWDER_MAX * (1 - sodaShare / 100), 2) : 0;
+  const sodaPct = leaven ? round(SODA_MAX * (sodaShare / 100) * leavenEnvFactor, 2) : 0;
+  const powderPct = leaven ? round(POWDER_MAX * (1 - sodaShare / 100) * leavenEnvFactor, 2) : 0;
   const eggCount = v.egg > 0 ? round(v.egg / EGG_G, 1) : 0;
 
   const dialGroups = [
     { title: "Dough", items: [
       { k: `Flour — ${flour.name.toLowerCase()}`, g: round(v.flourMass), pct: round(100 - cocoaPctEff, 1), note: flour.prot },
       ...(cocoaOn ? [{ k: `Cocoa — ${cocoaMode}`, g: round(cocoaLoad), pct: round(cocoaPctEff, 1), accent: true, note: "swapped in for flour" }] : []),
-      { k: "White sugar", g: round(v.white), pct: round(sugarPct * (1 - brownPct / 100), 1), note: "spread & crisp · caramelizes" },
-      ...(v.brown > 0 ? [{ k: "Brown sugar", g: round(v.brown), pct: round(sugarPct * (brownPct / 100), 1), accent: true, note: "molasses · moisture · chew" }] : []),
+      { k: "White sugar", g: round(v.white), pct: round(sugarPctEff * (1 - brownPct / 100), 1), accent: envOn && envAdj.sugarDeltaPct !== 0,
+        note: envOn && envAdj.sugarDeltaPct !== 0 ? `${sugarPct}% → ${sugarPctEff}% total — trimmed for altitude spread` : "spread & crisp · caramelizes" },
+      ...(v.brown > 0 ? [{ k: "Brown sugar", g: round(v.brown), pct: round(sugarPctEff * (brownPct / 100), 1), accent: true, note: "molasses · moisture · chew" }] : []),
       { k: `Butter — ${METHODS[method].label.toLowerCase().replace(" (one-bowl)", "")}`, g: round(v.butter), pct: round(butterPct, 1), note: METHODS[method].short },
       ...(eggPct > 0 ? [{ k: `Egg — ${EGG_FORMS[eggForm].label.toLowerCase()}`, g: round(v.egg), pct: round(eggPct, 1), note: `~${eggCount} large · ${EGG_FORMS[eggForm].short}` }] : []),
-      ...(leaven && v.soda > 0 ? [{ k: "Baking soda", g: round(v.soda, 1), pct: sodaPct, accent: true, note: "needs acid · browns & spreads" }] : []),
-      ...(leaven && v.powder > 0 ? [{ k: "Baking powder", g: round(v.powder, 1), pct: powderPct, note: "self-acting · puffs & pales" }] : []),
+      ...(leaven && v.soda > 0 ? [{ k: "Baking soda", g: round(v.soda, 1), pct: sodaPct, accent: true, note: envOn && leavenEnvFactor < 1 ? `−${round((1 - leavenEnvFactor) * 100)}% for altitude — thin air over-puffs` : "needs acid · browns & spreads" }] : []),
+      ...(leaven && v.powder > 0 ? [{ k: "Baking powder", g: round(v.powder, 1), pct: powderPct, note: envOn && leavenEnvFactor < 1 ? `−${round((1 - leavenEnvFactor) * 100)}% for altitude` : "self-acting · puffs & pales" }] : []),
       ...(!leaven ? [{ k: "Chemical leavening", g: null, pct: null, note: "none — short/shortbread style" }] : []),
       { k: "Salt", g: round(v.salt, 1), pct: round(saltPct, 1), note: "seasons · sharpens the sweet" },
       { k: "Vanilla", g: null, pct: null, note: "1–2 tsp, to taste" },
@@ -804,8 +1025,8 @@ export default function CookieBuildSheet() {
 
   const sc = SCOOPS[scoop];
   const cookieCount = v.doughWeight > 0 ? Math.max(1, Math.floor(v.doughWeight / sc.g)) : 0;
-  const dialSteps = useMemo(() => buildSteps({ method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flour, chill, chillIdx, sodaShare, ovenF, scoop, addins: selectedAddins, cocoa, verbosity, styleId: activeStyle }),
-    [method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flourIdx, chillIdx, sodaShare, ovenF, scoop, addinSel, cocoaOn, cocoaMode, cocoaPct, verbosity, activeStyle]);
+  const dialSteps = useMemo(() => buildSteps({ method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flour, chill, chillIdx, sodaShare, ovenF, scoop, addins: selectedAddins, cocoa, verbosity, styleId: activeStyle, v, saltPct }),
+    [method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flourIdx, chillIdx, sodaShare, ovenF, scoop, addinSel, cocoaOn, cocoaMode, cocoaPct, verbosity, activeStyle, v, saltPct]);
   const timeline = useMemo(() => buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins: selectedAddins }),
     [method, chillIdx, scoop, ovenF, addinSel]);
 
@@ -827,21 +1048,31 @@ export default function CookieBuildSheet() {
 
   // A fixed recipe overrides the dial-driven output.
   const groups = specialRecipe ? specialRecipe.groups : dialGroups;
+  const macros = useMemo(() => macrosPer100g(groups.flatMap((g) => g.items)), [groups]);
   const STEPS = specialRecipe ? specialRecipe.steps : dialSteps;
   const profile = specialRecipe ? specialRecipe.profile : dialProfile;
-  const showWhy = verbosity >= 1;
   const ovenC = fToC(ovenF);
+
+  const mono = "'IBM Plex Mono', monospace";
+  const envFieldLabel = { display: "flex", flexDirection: "column", gap: 5, fontFamily: mono, fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 };
+  const envFieldInput = { fontFamily: mono, fontSize: 15, padding: "9px 11px", borderRadius: 9, border: `1.5px solid ${C.line}`, background: C.paperDeep, color: C.ink, outline: "none" };
+  const envStat = (label, value) => (
+    <div key={label} style={{ flex: "1 1 120px", background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 10, padding: "9px 12px" }}>
+      <div style={{ fontFamily: mono, fontSize: 9.5, letterSpacing: 1, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontFamily: mono, fontSize: 18, fontWeight: 600, color: C.butter }}>{value}</div>
+    </div>
+  );
 
   return (
     <ThemeCtx.Provider value={C}>
     <div style={{ background: C.paper, minHeight: "100vh", padding: "28px 16px 60px", fontFamily: "'Fraunces', serif", color: C.ink, colorScheme: dark ? "dark" : "light", backgroundImage: C.glow, transition: "background .25s ease, color .25s ease" }}>
       <style>{FONTS}</style>
-      <div style={{ maxWidth: 720, margin: "0 auto", animation: "riseIn .5s ease" }}>
+      <div style={{ width: "100%", maxWidth: 880, margin: "0 auto", animation: "riseIn .5s ease" }}>
         {/* Header */}
         <div style={{ borderBottom: `2px solid ${C.ink}`, paddingBottom: 14, marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
           <h1 style={{ margin: 0, fontSize: 40, fontWeight: 900, letterSpacing: -1, lineHeight: 0.95 }}>Cookies</h1>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: C.inkSoft, lineHeight: 1.5 }}>
-            <span style={{ color: C.choc, fontWeight: 600 }}>{specialDef ? specialDef.name : activeStyle === "custom" ? "Custom build" : STYLE_BY_ID[activeStyle].name}</span><br />
+            <span style={{ color: C.choc, fontWeight: 600 }}>{specialDef ? specialDef.name : !boundStyle ? "Freestyle" : STYLE_BY_ID[boundStyle].name}</span><br />
             {specialRecipe ? `fixed recipe · ${specialRecipe.clock}` : `${sugarPct}% sugar · ${chill.clock}`}
           </div>
         </div>
@@ -850,14 +1081,26 @@ export default function CookieBuildSheet() {
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: C.choc, fontWeight: 600, margin: "2px 2px 10px" }}>
             <span>Style</span>
-            {activeStyle === "custom" && !special && <span style={{ color: C.inkSoft, letterSpacing: 1 }}>custom · off-preset</span>}
+            <span style={{ color: C.inkSoft, letterSpacing: 1 }}>{special ? "fixed recipe" : boundStyle ? "bound · adjusting within" : "freestyle"}</span>
           </div>
+          <button onClick={goFreestyle} style={{
+            display: "flex", gap: 9, alignItems: "flex-start", textAlign: "left", cursor: "pointer", width: "100%",
+            borderRadius: 11, padding: "11px 12px", marginBottom: 10, transition: "all .15s ease", fontFamily: "'Fraunces', serif",
+            border: `1.5px solid ${!special && !boundStyle ? C.butter : C.line}`, background: !special && !boundStyle ? C.butter : C.card, color: !special && !boundStyle ? C.onAccent : C.ink }}>
+            <span style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${!special && !boundStyle ? C.onAccent : C.line}`, flexShrink: 0, marginTop: 2, position: "relative" }}>
+              {!special && !boundStyle && <span style={{ position: "absolute", inset: 2.5, borderRadius: "50%", background: C.onAccent }} />}
+            </span>
+            <span style={{ lineHeight: 1.25 }}>
+              <span style={{ display: "block", fontWeight: 600, fontSize: 15 }}>Freestyle</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, opacity: 0.8 }}>no style — the model picks flour, method &amp; leavening too{freestyleNearest ? ` · closest: ${freestyleNearest.name}` : ""}</span>
+            </span>
+          </button>
           {STYLE_CATS.map((cat) => (
             <div key={cat} style={{ marginBottom: 10 }}>
               <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600, margin: "0 2px 6px" }}>{cat}</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                 {STYLES.filter((s) => s.cat === cat).map((s) => {
-                  const on = !special && activeStyle === s.id;
+                  const on = !special && boundStyle === s.id;
                   return (
                     <button key={s.id} onClick={() => applyStyle(s.id)} style={{
                       display: "flex", gap: 9, alignItems: "flex-start", textAlign: "left", cursor: "pointer",
@@ -902,12 +1145,12 @@ export default function CookieBuildSheet() {
             </div>
           </div>
 
-          <div style={{ marginTop: 4, fontSize: 14, lineHeight: 1.5, color: C.inkSoft, fontStyle: "italic", borderLeft: `3px solid ${special ? C.choc : activeStyle === "custom" ? C.line : C.bake}`, paddingLeft: 12 }}>
+          <div style={{ marginTop: 4, fontSize: 14, lineHeight: 1.5, color: C.inkSoft, fontStyle: "italic", borderLeft: `3px solid ${special ? C.choc : !boundStyle ? C.line : C.bake}`, paddingLeft: 12 }}>
             {specialDef
               ? specialDef.blurb
-              : activeStyle === "custom"
-              ? "Custom — you've tuned the dials off any single tradition. Pick a style above to snap back to a preset."
-              : STYLE_BY_ID[activeStyle].blurb}
+              : !boundStyle
+              ? `Freestyle — no style is selected, so the model is free to choose the flour, method and leavening as well as the amounts.${freestyleNearest ? ` Your sliders sit closest to ${freestyleNearest.name}.` : ""}`
+              : STYLE_BY_ID[boundStyle].blurb}
           </div>
         </div>
 
@@ -931,6 +1174,143 @@ export default function CookieBuildSheet() {
           </div>
         </div>
 
+        {/* Kitchen environment — altitude + humidity (by ZIP/day) + room temp */}
+        <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 14, padding: "16px 18px", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>Kitchen environment</span>
+            <span style={{ fontFamily: mono, fontSize: 11, color: C.inkSoft }}>altitude · humidity · room temp</span>
+          </div>
+          <div style={{ fontSize: 13, color: C.inkSoft, fontStyle: "italic", marginBottom: 13 }}>
+            Pull your elevation and the day's humidity from a US ZIP code (or type your own indoor humidity), set the room temperature in °F or °C, and the formula recalibrates — leavening, sugar, the bake and how much to chill.
+          </div>
+
+          {/* Location → fetch */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <label style={{ ...envFieldLabel, flex: "2 1 130px" }}>
+              ZIP code
+              <input value={zip} inputMode="numeric" placeholder="e.g. 80401"
+                onChange={(e) => setZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                onKeyDown={(e) => { if (e.key === "Enter") runEnvFetch(); }}
+                style={envFieldInput} />
+            </label>
+            <label style={{ ...envFieldLabel, flex: "2 1 150px" }}>
+              Date
+              <input type="date" value={envDate} onChange={(e) => setEnvDate(e.target.value)} style={envFieldInput} />
+            </label>
+            <button onClick={runEnvFetch} disabled={envLoading}
+              style={{ fontFamily: mono, fontSize: 13, fontWeight: 600, padding: "10px 16px", borderRadius: 9, border: "none", cursor: envLoading ? "default" : "pointer", background: C.butterDeep, color: C.onAccent, opacity: envLoading ? 0.6 : 1, whiteSpace: "nowrap" }}>
+              {envLoading ? "Fetching…" : "Fetch conditions"}
+            </button>
+          </div>
+
+          {/* Manual conditions: room temperature (°F/°C) + humidity override */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }}>
+            <label style={{ ...envFieldLabel, flex: "3 1 280px" }}>
+              Room temperature
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="number" value={roomTempInput} inputMode="decimal"
+                  onChange={(e) => setRoomTempInput(e.target.value)}
+                  style={{ ...envFieldInput, flex: 1, minWidth: 90 }} />
+                <div style={{ display: "flex", gap: 3, background: C.paperDeep, borderRadius: 8, padding: 3 }}>
+                  {["F", "C"].map((u) => {
+                    const on = tempUnit === u;
+                    return (
+                      <button key={u} type="button" onClick={() => switchTempUnit(u)}
+                        style={{ border: "none", borderRadius: 6, padding: "7px 11px", cursor: "pointer", fontFamily: mono, fontSize: 12, fontWeight: 600, background: on ? C.butter : "transparent", color: on ? C.onAccent : C.inkSoft, transition: "all .15s ease" }}>°{u}</button>
+                    );
+                  })}
+                </div>
+                <span style={{ fontFamily: mono, fontSize: 12, color: C.inkSoft, whiteSpace: "nowrap" }}>≈ {rtAltUnit}°{tempUnit === "F" ? "C" : "F"}</span>
+              </span>
+            </label>
+            <label style={{ ...envFieldLabel, flex: "2 1 160px" }}>
+              Humidity %
+              <input type="number" value={humidityManual} min={0} max={100} inputMode="decimal"
+                placeholder={envData ? `${envData.humidityPct} (fetched)` : "optional"}
+                onChange={(e) => setHumidityManual(e.target.value)} style={envFieldInput} />
+            </label>
+          </div>
+
+          <div style={{ marginTop: 9, fontSize: 12, color: C.inkSoft, fontStyle: "italic" }}>
+            Humidity uses the ZIP/day reading unless you enter your own — set it to your hygrometer value if a humidifier or HVAC makes your kitchen differ.{!envData ? " Add a ZIP and fetch for altitude effects." : ""}
+          </div>
+
+          {envError && (
+            <div style={{ marginTop: 11, fontSize: 13, color: C.choc, fontWeight: 600 }}>⚠ {envError}</div>
+          )}
+
+          {condReady && envAdj && (
+            <div style={{ marginTop: 14, background: C.mixBg, border: `1.5px solid ${C.choc}`, borderRadius: 12, padding: "13px 15px", animation: "riseIn .2s ease" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 11 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 600 }}>📍 {envData ? `${envData.place} · ${envData.date}` : "Your kitchen · manual conditions"}</span>
+                <button onClick={() => setEnvApplied((a) => !a)} disabled={!!special}
+                  style={{ display: "flex", alignItems: "center", gap: 8, background: envOn ? C.choc : "transparent", color: envOn ? C.onAccent : C.choc, border: `1.5px solid ${C.choc}`, borderRadius: 20, padding: "6px 13px", cursor: special ? "default" : "pointer", opacity: special ? 0.5 : 1, fontFamily: mono, fontSize: 12, fontWeight: 600 }}>
+                  {envOn ? "✓ applied to recipe" : envApplied && special ? "n/a for fixed recipe" : "apply to recipe"}
+                </button>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                {envStat("Elevation", envData ? `${envData.elevFt.toLocaleString()} ft` : "— add ZIP")}
+                {envStat(humidityIsManual ? "Humidity · yours" : "Humidity", `${humidityUsed}%`)}
+                {envStat("Room", `${round(rt)}°F · ${round((rt - 32) * 5 / 9)}°C`)}
+              </div>
+
+              <div style={{ fontFamily: mono, fontSize: 10.5, letterSpacing: 1.2, textTransform: "uppercase", color: C.choc, fontWeight: 600, marginBottom: 9 }}>
+                Scientific recalibration
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {[
+                  ...(leaven && envAdj.leavenFactor < 1 ? [{
+                    label: "Leavening",
+                    value: `×${envAdj.leavenFactor.toFixed(2)} (−${round((1 - envAdj.leavenFactor) * 100)}%)`,
+                    on: envOn,
+                    why: `At ${elevFtUsed.toLocaleString()} ft the lower air pressure lets the soda/powder's gas expand more, so cookies dome then collapse — cut the leavening so they set flat and even.`,
+                  }] : []),
+                  ...(envAdj.sugarDeltaPct !== 0 ? [{
+                    label: "Sugar",
+                    value: `${sugarPct}% → ${Math.max(0, round(sugarPct + envAdj.sugarDeltaPct, 1))}%`,
+                    on: envOn,
+                    why: "Sugar melts and makes the dough flow, so it drives spread. Trimming it at altitude (with a touch more flour, if the dough is slack) helps the cookie set before it over-spreads.",
+                  }] : []),
+                  ...(envAdj.ovenBumpF > 0 ? [{
+                    label: "Oven",
+                    value: `set +${envAdj.ovenBumpF}°F, bake shorter`,
+                    on: true,
+                    why: "Standard high-altitude move: a hotter, shorter bake sets the edges before the fast-spreading dough goes flat and dry.",
+                  }] : []),
+                  {
+                    label: "Chill before baking",
+                    value: envAdj.recommendChill ? "recommended (≥1 hr)" : "optional",
+                    on: true,
+                    why: envAdj.recommendChill
+                      ? `Your ${round(rt)}°F room${humidityUsed > ENV_BASE_RH ? ` and ${humidityUsed}% humidity` : ""} means soft butter and a slack, hygroscopic dough — both push the cookie to over-spread. Chilling firms the fat so it holds its shape.`
+                      : `Your ${round(rt)}°F room and ${humidityUsed}% humidity are in the comfortable range — chilling is about flavour and shape, not damage control here.`,
+                  },
+                  {
+                    label: "Butter / dough temp",
+                    value: `${envAdj.spreadRisk} spread risk`,
+                    on: true,
+                    why: `Spread is governed by how soft the butter is when it hits the oven. At ${round(rt)}°F your butter runs ${rt >= 75 ? "soft — cream it just to combine (not fluffy), or chill the scooped dough" : rt <= 62 ? "firm — let it warm a little before creaming so it aerates" : "about right for creaming"}.`,
+                  },
+                ].map((ln) => (
+                  <div key={ln.label} style={{ opacity: ln.on ? 1 : 0.5 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>{ln.label}{!ln.on && <span style={{ fontFamily: mono, fontSize: 10.5, color: C.inkSoft, fontWeight: 400 }}> · toggle on to apply</span>}</span>
+                      <span style={{ fontFamily: mono, fontSize: 13.5, color: C.choc, fontWeight: 600, whiteSpace: "nowrap" }}>{ln.value}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, lineHeight: 1.45, color: C.inkSoft, marginTop: 2 }}>{ln.why}</div>
+                  </div>
+                ))}
+              </div>
+              {special && (
+                <div style={{ marginTop: 11, fontSize: 12.5, color: C.inkSoft, fontStyle: "italic" }}>
+                  The bake, chill and butter guidance still applies, but the leavening/sugar recalibration only folds into the dial-driven recipes — {specialDef.name} runs its own fixed formula.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Fixed-recipe banner — the dials don't apply here */}
         {special && (
           <div style={{ background: C.mixBg, border: `1.5px solid ${C.choc}`, borderRadius: 12, padding: "12px 15px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -946,56 +1326,46 @@ export default function CookieBuildSheet() {
         {/* The dials (dial-driven styles only) */}
         {!special && <>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: C.choc, fontWeight: 600, margin: "4px 2px 10px" }}>
-          <span>The dials</span>
+          <span>Drive the qualities</span>
+          <span style={{ color: C.inkSoft, letterSpacing: 1 }}>the formula is solved from these</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-          <Dial label="Sugar — total" value={sugarPct} min={45} max={120} step={5}
-            onChange={setSugarPct} readout={`${sugarPct}% · ${round(v.totalSugar)}g`} lo="lean / less sweet" hi="rich / candy-sweet"
-            why="Sugar as a % of flour. Sugar does far more than sweeten: it melts and dissolves in the heat so the dough flows — more sugar means more spread and a crisper, more caramelized cookie. It also tenderises (competing for water, it interferes with gluten and slows egg set) and fuels browning (McGee; Bressanini, zuccheri)." />
-          <Dial label="Brown : white sugar" value={brownPct} min={0} max={100} step={5} accent
-            onChange={setBrownPct} readout={brownPct === 0 ? "all white" : brownPct === 100 ? "all brown" : `${brownPct}% brown`} lo="all white / crisp" hi="all brown / chewy"
-            why="Brown sugar is white sugar plus molasses — which brings moisture, a little acid, and invert sugar (glucose + fructose). The molasses is hygroscopic, so it holds water and keeps the cookie soft and chewy, and its acidity feeds the baking soda to brown harder. All-white bakes crisper, paler and snappier (McGee, sugars; Bressanini)." />
-          <Dial label="Butter — fat" value={butterPct} min={40} max={80} step={5}
-            onChange={setButterPct} readout={`${butterPct}% · ${round(v.butter)}g`} lo="lean / firm" hi="rich / spreads"
-            why="Fat as a % of flour. Butterfat coats the flour proteins and physically shortens the gluten, so more butter means a more tender, melting crumb — and because it liquefies in the oven, more fat also means more spread. Butter is ~16% water, which hydrates flour and turns to steam for a little lift (Bressanini, burro; McGee, fats)." />
-          <Dial label="Egg — bind & lift" value={eggPct} min={0} max={35} step={5}
-            onChange={setEggPct} readout={eggPct === 0 ? "none" : `${eggPct}% · ${round(v.egg)}g`} lo="none / sandy" hi="rich / cakey"
-            why="Egg as a % of flour. Yolks are fat plus lecithin, an emulsifier, so they bind, enrich and tenderise (chew); whites are protein and water that set into structure and crisp as they dry. More egg overall means a more set, cakier cookie; none at all (shortbread) means a short, sandy one held together by fat (McGee, eggs)." />
-          <Dial label="Flour strength" value={flourIdx} min={0} max={3} step={1} stops={["cake", "pastry", "AP", "bread"]}
-            onChange={setFlourIdx} readout={`${flour.name} · ${flour.hint}`}
-            why="Which flour, by protein. Protein is the raw material for gluten, and gluten is chew and structure: bread flour (high protein) bakes a chewier, sturdier cookie; cake flour (low protein) a tender, short, delicate one. How hard you then mix decides how much of that potential gluten actually forms (Cauvain, Ch.2)." />
-          {leaven ? (
-            <Dial label="Leavening — soda : powder" value={sodaShare} min={0} max={100} step={10} accent
-              onChange={setSodaShare} readout={`${round(v.soda, 1)}g soda · ${round(v.powder, 1)}g powder`} lo="all powder / puffy" hi="all soda / spread"
-              why="Baking soda is a pure base: it needs an acid (brown sugar, molasses, natural cocoa) to make CO₂, and it raises the dough's pH — which speeds Maillard browning, weakens gluten for more spread, and bakes a coarser, darker cookie. Baking powder is self-acting and pH-neutral, so it just puffs: a finer, paler, more cake-like lift (McGee, leavening; Bressanini, lievitazione)." />
-          ) : (
-            <div style={{ background: C.card, border: `1.5px dashed ${C.line}`, borderRadius: 12, padding: "13px 15px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>No chemical leavening</div>
-              <div style={{ fontSize: 12.5, color: C.inkSoft, lineHeight: 1.45, fontFamily: "'IBM Plex Mono', monospace" }}>
-                shortbread/sablé style — rise comes only from steam and any creamed air. Toggle leavening on below to add soda &amp; powder.
-              </div>
-            </div>
-          )}
-          <Dial label="Salt" value={saltPct} min={0.4} max={2.4} step={0.1}
-            onChange={setSaltPct} readout={`${round(saltPct, 1)}% · ${round(v.salt, 1)}g`} lo="lean" hi="bold"
-            why="Salt as a % of flour. Beyond seasoning, salt suppresses bitterness and sharpens the perception of sweetness, so a well-salted cookie tastes more of everything; it also slightly tightens gluten. Brown-butter and chocolate cookies take more salt than pale, delicate ones (McGee)." />
-          <Dial label="Chill & rest" value={chillIdx} min={0} max={3} step={1} accent stops={["none", "1 hr", "night", "24–72h"]}
-            onChange={setChillIdx} readout={`${chill.name} · ${chill.tag}`}
-            why={`The spread-and-flavour axis. Chilling firms the butter so the cookie spreads less and bakes taller; a longer rest also hydrates the flour for an even crumb, and over 24–72 hr enzymes break starch and protein into reducing sugars and free amino acids that brown far deeper — the famous multi-day cookie cure (McGee, browning). Right now: ${chill.short}, ${chill.clock}.`} />
-          <Dial label="Oven — temperature" value={ovenF} min={300} max={400} step={25}
-            onChange={setOvenF} readout={`${ovenF}°F · ${ovenC}°C`} lo="low / dry & even" hi="hot / set fast"
-            why="It's a race between spreading and setting. A hotter oven sets the edges before the centre can spread far, giving a thick, soft-centred cookie with crisp rims; a cooler oven lets it spread and dry evenly into a flatter, crisper one. Browning (Maillard + caramelization) climbs steeply with temperature, so hotter also means darker, faster (McGee)." />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 10, marginBottom: 12 }}>
+          {QUALITY_AXES.map((a) => (
+            <Dial key={a.key} label={a.label} value={q[a.key]} min={0} max={100} step={1}
+              onChange={(val) => setQ((prev) => ({ ...prev, [a.key]: val }))}
+              readout={`${q[a.key]} / 100`} lo={a.lo} hi={a.hi}
+              accent={a.key === "browning" || a.key === "crispness"} why={QUALITY_WHY[a.key]} />
+          ))}
         </div>
 
-        {/* Method + leavening toggle + egg form + scoop */}
+        {/* Scoop size — a baker's choice, not a quality the model solves */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, marginBottom: 12 }}>
-          <Segmented label="Mixing method" value={method} onChange={setMethod} sub={METHODS[method].short}
-            options={[["creamed", "Creamed"], ["melted", "Melted"], ["browned", "Browned"], ["sable", "Cold-cut"]]} C={C} />
-          <Segmented label="Egg richness" value={eggForm} onChange={setEggForm} sub={eggPct === 0 ? "no egg in this build" : EGG_FORMS[eggForm].short}
-            options={[["whole", "Whole"], ["yolk", "Yolk-rich"], ["white", "+ Whites"]]} C={C} />
           <Segmented label="Scoop size" value={scoop} onChange={setScoop} sub={`${sc.g}g · ${sc.tag} · ${sc.min}–${sc.max} min bake`}
             options={[["small", "Small"], ["standard", "Standard"], ["bakery", "Bakery"]]} C={C} />
-          <Toggle on={leaven} onClick={() => setLeaven((s) => !s)} label="Chemical leavening" sub={leaven ? "baking soda + powder, split by the dial" : "off — shortbread / sablé style"} />
+        </div>
+
+        {/* What the qualities tell you to use — the solved formula & method */}
+        <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 9, flexWrap: "wrap", gap: 6 }}>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>Use this — solved from your qualities</span>
+            <span style={{ fontFamily: mono, fontSize: 11, color: C.inkSoft }}>{boundStyle ? `within ${STYLE_BY_ID[boundStyle].name}` : "freestyle"} · {Math.round(100 * Math.exp(-solved.residual / 500))}% match</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+            {[
+              ["Mixing", METHODS[method].label, METHODS[method].short],
+              ["Flour", flour.name, flour.prot],
+              ["Egg", eggPct === 0 ? "none" : EGG_FORMS[eggForm].label, eggPct === 0 ? "shortbread style" : EGG_FORMS[eggForm].short],
+              ["Leavening", leaven ? `${round(v.soda, 1)}g soda · ${round(v.powder, 1)}g powder` : "none", leaven ? `${sodaShare}% soda share` : "short / sablé"],
+              ["Chill", chill.name, chill.clock],
+              ["Oven", `${ovenF}°F · ${ovenC}°C`, `${sc.min}–${sc.max} min`],
+            ].map(([k, val, sub]) => (
+              <div key={k} style={{ background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 9, padding: "9px 11px" }}>
+                <div style={{ fontFamily: mono, fontSize: 9.5, letterSpacing: 1, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 }}>{k}</div>
+                <div style={{ fontSize: 14.5, fontWeight: 600, color: C.butter }}>{val}</div>
+                <div style={{ fontSize: 11, color: C.inkSoft, lineHeight: 1.3 }}>{sub}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Add-ins */}
@@ -1100,21 +1470,6 @@ export default function CookieBuildSheet() {
         </div>
         </>}
 
-        {/* Display options: verbosity + dark mode */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-          <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 15px 11px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>Recipe detail</span>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.butter, fontWeight: 600 }}>{VERBOSITY[verbosity]}</span>
-            </div>
-            <input type="range" min={0} max={2} step={1} value={verbosity} onChange={(e) => setVerbosity(Number(e.target.value))} style={{ width: "100%", accentColor: C.butter, margin: "9px 0 2px" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkSoft }}>
-              {VERBOSITY.map((lbl, i) => <span key={lbl} style={{ color: i === verbosity ? C.butter : C.inkSoft, fontWeight: i === verbosity ? 600 : 400, flex: 1, textAlign: "center" }}>{lbl.toLowerCase()}</span>)}
-            </div>
-          </div>
-          <Toggle on={dark} onClick={() => setDark((d) => !d)} label={dark ? "Dark mode" : "Light mode"} sub={dark ? "warm charcoal" : "warm cream"} />
-        </div>
-
         {/* Live profile chips */}
         <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 22 }}>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600, marginBottom: 9 }}>
@@ -1127,38 +1482,70 @@ export default function CookieBuildSheet() {
           </div>
         </div>
 
-        {/* Grouped ingredient table */}
-        <div style={{ borderRadius: 14, border: `1.5px solid ${C.line}`, overflow: "hidden", marginBottom: 14, background: C.card }}>
-          {groups.map((grp, gi) => (
-            <div key={grp.title}>
-              <div style={{ padding: "11px 18px 9px", background: grp.brine ? C.mixBg : C.paperDeep, borderTop: gi === 0 ? "none" : `1.5px solid ${C.line}` }}>
-                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, letterSpacing: 1.5, textTransform: "uppercase", color: grp.brine ? C.choc : C.inkSoft, fontWeight: 600 }}>
-                  ▸ {grp.title}
+        {/* Ingredients — by physical step (dial recipes) or the fixed recipe's own grouping */}
+        {specialRecipe ? (
+          <div style={{ borderRadius: 14, border: `1.5px solid ${C.line}`, overflow: "hidden", marginBottom: 14, background: C.card }}>
+            {groups.map((grp, gi) => (
+              <div key={grp.title}>
+                <div style={{ padding: "11px 18px 9px", background: grp.brine ? C.mixBg : C.paperDeep, borderTop: gi === 0 ? "none" : `1.5px solid ${C.line}` }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, letterSpacing: 1.5, textTransform: "uppercase", color: grp.brine ? C.choc : C.inkSoft, fontWeight: 600 }}>
+                    ▸ {grp.title}
+                  </div>
+                  {grp.caption && <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>{grp.caption}</div>}
                 </div>
-                {grp.caption && <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>{grp.caption}</div>}
+                {grp.items.map((r, i) => (
+                  <div key={r.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderTop: i === 0 ? "none" : `1px solid ${C.paperDeep}` }}>
+                    <span style={{ fontSize: 16, fontWeight: 500 }}>
+                      {r.k}
+                      {r.note && <span style={{ display: "block", fontSize: 11, color: C.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{r.note}</span>}
+                    </span>
+                    <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      {r.pct != null && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: r.accent ? C.choc : C.inkSoft, marginRight: 10 }}>{r.pct}%</span>}
+                      {r.g != null ? (
+                        <>
+                          <Num color={r.accent ? C.choc : C.ink}><span style={{ fontSize: 19 }}>{r.g}</span></Num>
+                          <span style={{ fontSize: 13, color: C.inkSoft }}> g</span>
+                        </>
+                      ) : (
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.inkSoft }}>{r.note ? "to taste" : "—"}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
               </div>
-              {grp.items.map((r, i) => (
-                <div key={r.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderTop: i === 0 ? "none" : `1px solid ${C.paperDeep}` }}>
-                  <span style={{ fontSize: 16, fontWeight: 500 }}>
-                    {r.k}
-                    {r.note && <span style={{ display: "block", fontSize: 11, color: C.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{r.note}</span>}
-                  </span>
-                  <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    {r.pct != null && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: r.accent ? C.choc : C.inkSoft, marginRight: 10 }}>{r.pct}%</span>}
-                    {r.g != null ? (
-                      <>
-                        <Num color={r.accent ? C.choc : C.ink}><span style={{ fontSize: 19 }}>{r.g}</span></Num>
-                        <span style={{ fontSize: 13, color: C.inkSoft }}> g</span>
-                      </>
-                    ) : (
-                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.inkSoft }}>{r.note ? "to taste" : "—"}</span>
-                    )}
-                  </span>
-                </div>
-              ))}
+            ))}
+          </div>
+        ) : (
+          <div style={{ borderRadius: 14, border: `1.5px solid ${C.line}`, overflow: "hidden", marginBottom: 14, background: C.card }}>
+            <div style={{ padding: "11px 18px 9px", background: C.paperDeep }}>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, letterSpacing: 1.5, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 }}>▸ Ingredients · by step</div>
+              <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>each amount listed at the physical step that uses it · {round(v.doughWeight)}g dough total</div>
             </div>
-          ))}
-        </div>
+            {STEPS.filter((s) => s.ing && s.ing.length).map((s) => (
+              <div key={s.n}>
+                <div style={{ padding: "10px 18px 6px", borderTop: `1.5px solid ${C.line}`, display: "flex", gap: 10, alignItems: "baseline" }}>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 600, color: C.bake }}>{s.n}</span>
+                  <span style={{ fontSize: 14.5, fontWeight: 600 }}>{s.title}</span>
+                </div>
+                {s.ing.map((it, i) => (
+                  <div key={it.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 18px 8px 38px", borderTop: i === 0 ? "none" : `1px solid ${C.paperDeep}` }}>
+                    <span style={{ fontSize: 15 }}>
+                      {it.k}
+                      {it.note && <span style={{ display: "block", fontSize: 11, color: C.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{it.note}</span>}
+                    </span>
+                    <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      {it.g != null ? (
+                        <><Num color={C.ink}><span style={{ fontSize: 18 }}>{it.g}</span></Num><span style={{ fontSize: 13, color: C.inkSoft }}> g</span></>
+                      ) : (
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.inkSoft }}>to taste</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Yield summary */}
         <div style={{ display: "flex", gap: 10, marginBottom: 28, flexWrap: "wrap" }}>
@@ -1174,27 +1561,58 @@ export default function CookieBuildSheet() {
               </>}
         </div>
 
-        {/* Process */}
+        {/* Nutrition — gram-weighted macros normalised to a 100g serving */}
+        {macros && (
+          <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 14, padding: "16px 18px", marginBottom: 28 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>Nutrition — per 100g</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>estimated · dough as mixed</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {[
+                ["Energy", `${macros.kcal}`, "kcal"],
+                ["Carbs", `${macros.carb}`, "g"],
+                ["of which sugars", `${macros.sugar}`, "g"],
+                ["Fat", `${macros.fat}`, "g"],
+                ["Protein", `${macros.protein}`, "g"],
+              ].map(([label, val, unit]) => (
+                <div key={label} style={{ flex: "1 1 100px", background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px" }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, letterSpacing: 1, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 }}>{label}</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, color: C.butter, marginTop: 3 }}>{val}<span style={{ fontSize: 12, opacity: 0.7, marginLeft: 3 }}>{unit}</span></div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: C.inkSoft, fontStyle: "italic", marginTop: 11 }}>
+              Mass-balance of the formula's ingredients (USDA FoodData Central densities). Baking drives off water, so a baked cookie runs a little more energy-dense per 100g.
+            </div>
+          </div>
+        )}
+
+        {/* Process — succinct bullet steps; tap any step for the why */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: C.choc, fontWeight: 600, marginBottom: 12 }}>
-          <span>Process{showWhy ? " — tap for the why" : ""}</span>
+          <span>Process — tap any step for the why</span>
           <span style={{ color: C.inkSoft, letterSpacing: 1 }}>{specialRecipe ? specialRecipe.clock : `${chill.clock} + bake`}</span>
         </div>
 
         {STEPS.map((s) => {
           const open = openStep === s.n;
           return (
-            <div key={s.n} style={{ border: `1.5px solid ${open && showWhy ? C.butter : C.line}`, borderRadius: 12, marginBottom: 9, overflow: "hidden", background: open && showWhy ? C.card : "transparent", transition: "border-color .18s ease" }}>
+            <div key={s.n} style={{ border: `1.5px solid ${open ? C.butter : C.line}`, borderRadius: 12, marginBottom: 9, overflow: "hidden", background: open ? C.card : "transparent", transition: "border-color .18s ease" }}>
               <button onClick={() => setOpenStep(open ? "" : s.n)} style={{ width: "100%", display: "flex", gap: 14, alignItems: "flex-start", textAlign: "left", background: "transparent", border: "none", cursor: "pointer", padding: "14px 16px", fontFamily: "'Fraunces', serif", color: C.ink }}>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: open && showWhy ? C.butter : C.bake, paddingTop: 3 }}>{s.n}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: open ? C.butter : C.bake, paddingTop: 3 }}>{s.n}</span>
                 <span style={{ flex: 1 }}>
                   <span style={{ fontSize: 19, fontWeight: 600, display: "block" }}>{s.title}</span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkSoft }}>{s.spec}</span>
+                  <span style={{ display: "block", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.inkSoft, marginTop: 5 }}>
+                    {s.spec.split(" · ").map((seg, i) => (
+                      <span key={i} style={{ display: "block", paddingLeft: 13, textIndent: -11, lineHeight: 1.5 }}>• {seg}</span>
+                    ))}
+                  </span>
                 </span>
-                {showWhy && <span style={{ fontSize: 20, color: C.butter, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s ease", lineHeight: 1, paddingTop: 2 }}>+</span>}
+                <span style={{ fontSize: 20, color: C.butter, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s ease", lineHeight: 1, paddingTop: 2 }}>+</span>
               </button>
-              {open && showWhy && (
+              {open && (
                 <div style={{ padding: "0 16px 16px 44px", fontSize: 15.5, lineHeight: 1.55, color: C.inkSoft, whiteSpace: "pre-line", animation: "riseIn .25s ease" }}>
-                  {s.why}{verbosity >= 2 && s.more ? `\n\n${s.more}` : ""}
+                  {s.why}{s.more ? `\n\n${s.more}` : ""}
                 </div>
               )}
             </div>
