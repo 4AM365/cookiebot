@@ -793,6 +793,33 @@ function buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins }) {
   return { phases, spine, tracks };
 }
 
+// One step inside a timeline block: title + bullets, with the full "why" (and
+// "more") revealed on hover — and toggled on click/tap so it works on touch too.
+// (The old native `title` tooltip only showed the help cursor in most browsers.)
+function GanttStep({ s, C, accent, cup }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 8 }} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <div onClick={() => setOpen((o) => !o)} style={{ cursor: "help", fontSize: 13.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "baseline", gap: 6 }}>
+        {s.title}<span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: open ? accent : C.inkSoft, fontWeight: 600 }}>ⓘ why</span>
+      </div>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, marginTop: 2 }}>
+        {s.spec.split(" · ").map((seg, k) => (
+          <span key={s.n + ":" + k} style={{ display: "block", paddingLeft: 11, textIndent: -9, lineHeight: 1.45 }}>• {seg}</span>
+        ))}
+      </div>
+      {open && s.why && (
+        <div style={{ marginTop: 6, fontSize: 12.5, lineHeight: 1.5, color: C.inkSoft, background: C.card, border: `1px solid ${C.line}`, borderLeft: `3px solid ${accent}`, borderRadius: 8, padding: "8px 10px", whiteSpace: "pre-line", animation: "riseIn .18s ease" }}>
+          {s.why}{s.more ? `\n\n${s.more}` : ""}
+        </div>
+      )}
+      {s.ing && s.ing.length > 0 && (
+        <div style={{ marginTop: 5 }}>{cup(s.ing)}</div>
+      )}
+    </div>
+  );
+}
+
 // A vertical timeline of the bake: phases run top→bottom, each with a wide block
 // beside it — the dough's action(s) for that phase (the "why" on hover), the
 // ingredients + grams to add then, and any ingredient prep (butter, add-ins)
@@ -835,19 +862,7 @@ function TimeGraph({ phases, spine, tracks, stepsByPhase, C, accent }) {
               {hasBody && (
                 <div style={{ background: C.paperDeep, border: `1px solid ${C.line}`, borderLeft: `3px solid ${accent}`, borderRadius: 9, padding: "9px 12px" }}>
                   {steps.length > 0 ? steps.map((s) => (
-                    <div key={s.n} style={{ marginBottom: 8 }}>
-                      <div title={s.why + (s.more ? `\n\n${s.more}` : "")} style={{ cursor: "help", fontSize: 13.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "baseline", gap: 6 }}>
-                        {s.title}<span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkSoft, fontWeight: 400 }}>ⓘ why</span>
-                      </div>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, marginTop: 2 }}>
-                        {s.spec.split(" · ").map((seg, k) => (
-                          <span key={s.n + ":" + k} style={{ display: "block", paddingLeft: 11, textIndent: -9, lineHeight: 1.45 }}>• {seg}</span>
-                        ))}
-                      </div>
-                      {s.ing && s.ing.length > 0 && (
-                        <div style={{ marginTop: 5 }}>{cup(s.ing)}</div>
-                      )}
-                    </div>
+                    <GanttStep key={s.n} s={s} C={C} accent={accent} cup={cup} />
                   )) : (spine[p.key] && <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{spine[p.key]}</div>)}
 
                   {phaseTracks.map((t) => (
