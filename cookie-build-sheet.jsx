@@ -625,26 +625,26 @@ function buildSteps(p) {
   const steps = [];
 
   if (method === "browned") {
-    steps.push({ title: "Brown the butter", spec: "melt → foam → nutty-brown speckles · pour off · cool until pliable",
+    steps.push({ phase: "mix", title: "Brown the butter", spec: "melt → foam → nutty-brown speckles · pour off · cool until pliable",
       why: "Melt the butter and keep cooking past melting: it foams, then the milk solids toast to brown flecks and a nutty, toffee aroma — that's the Maillard reaction on the milk proteins and sugars (McGee). Cooking also drives off ~15–20% of the butter's water, so a browned-butter cookie spreads less and tastes deeper.",
       more: "You lost water, so the dough is drier — chill the browned butter back to a soft solid if you want to cream it, or use it warm-melted for maximum spread and chew.",
       ing: [{ k: "Butter", g: round(v.butter), note: "to brown" }] });
   }
 
   if (sablage) {
-    steps.push({ title: "Sablage — rub the cold butter into the dry", spec: `cold cubed butter (${butterPct}%) rubbed into flour + sugar + salt${leaven ? " + leavening" : ""} · until sandy`,
+    steps.push({ phase: "mix", title: "Sablage — rub the cold butter into the dry", spec: `cold cubed butter (${butterPct}%) rubbed into flour + sugar + salt${leaven ? " + leavening" : ""} · until sandy`,
       why: `The sablé/frolla move: coat the flour in fat *before* any liquid. Cold butter rubbed into the dry waterproofs the flour so water can't reach the proteins and build gluten — the result is short, tender, sandy and snappable rather than chewy (Bressanini, pasta frolla). 'Sablé' literally means sandy.`,
       more: "Keep everything cold and work fast — warm hands melt the butter into the flour and you lose the short, flaky texture.",
       ing: [{ k: "Cold butter", g: round(v.butter) }, { k: "White sugar", g: round(v.white) },
         ...(v.brown > 0 ? [{ k: "Brown sugar", g: round(v.brown) }] : [])] });
   } else if (method === "creamed") {
-    steps.push({ title: "Cream the butter & sugar", spec: `softened butter (≈18°C/65°F, ${butterPct}%) + both sugars · beat 3–5 min to pale & fluffy`,
+    steps.push({ phase: "mix", title: "Cream the butter & sugar", spec: `softened butter (≈18°C/65°F, ${butterPct}%) + both sugars · beat 3–5 min to pale & fluffy`,
       why: `Beat softened butter with the sugar until pale and fluffy. Creaming whips air into the plastic fat, and the sharp sugar crystals cut in those bubbles — they become the nuclei the leavening later inflates, so creaming is itself a leavening step and gives a lighter, more cakey lift (Bressanini; McGee).${brownPct > 0 ? " The brown sugar also brings moisture and a little acidity." : ""}`,
       more: "Butter too warm and greasy won't hold the air; too cold and it won't cream. Stop when it's pale and noticeably fluffy.",
       ing: [{ k: "Butter (soft)", g: round(v.butter) }, { k: "White sugar", g: round(v.white) },
         ...(v.brown > 0 ? [{ k: "Brown sugar", g: round(v.brown) }] : [])] });
   } else {
-    steps.push({ title: `Whisk the ${method === "browned" ? "browned " : "melted "}butter & sugar`, spec: `warm ${method === "browned" ? "browned " : "melted "}butter (${butterPct}%) + both sugars · whisk smooth · rest 10 min`,
+    steps.push({ phase: "mix", title: `Whisk the ${method === "browned" ? "browned " : "melted "}butter & sugar`, spec: `warm ${method === "browned" ? "browned " : "melted "}butter (${butterPct}%) + both sugars · whisk smooth · rest 10 min`,
       why: `Whisk the melted butter into both sugars — no aeration here, so you get a denser, chewier, more spread-prone dough than creaming. Resting 10 minutes lets the sugar begin dissolving, which gives that shiny, crackly top; undissolved sugar bakes sandier (McGee, sugars). Melted butter also frees its water to hydrate the flour, building a little more gluten for chew.`,
       more: "The warmer the butter, the more it spreads. For the glossiest, crackliest top, dissolve the sugar fully — whisk, rest, whisk again.",
       ing: [...(method === "browned" ? [] : [{ k: "Melted butter", g: round(v.butter) }]),
@@ -653,7 +653,7 @@ function buildSteps(p) {
   }
 
   if (hasEgg) {
-    steps.push({ title: "Beat in the egg & vanilla", spec: `egg (${eggPct}%, ${eg.label.toLowerCase()}) + vanilla · beat until emulsified`,
+    steps.push({ phase: "mix", title: "Beat in the egg & vanilla", spec: `egg (${eggPct}%, ${eg.label.toLowerCase()}) + vanilla · beat until emulsified`,
       why: `Add the egg and vanilla and beat until smooth and emulsified. You're on ${eg.label.toLowerCase()}: ${eggForm === "yolk" ? "yolks bring fat and lecithin (an emulsifier) for a silky, tender, moisture-holding chew" : eggForm === "white" ? "the extra white is protein and water, so it sets firmer and bakes crisper and more cakey" : "whole eggs balance binding and set"} (McGee, eggs).`,
       more: "Scrape the bowl and beat until uniform — a broken emulsion bakes greasy and uneven.",
       ing: [{ k: `Egg — ${eg.label.toLowerCase()}`, g: round(v.egg), note: `~${round(v.egg / EGG_G, 1)} large` },
@@ -661,7 +661,7 @@ function buildSteps(p) {
   }
 
   const cocoaDry = cocoa && cocoa.on ? ` + sifted cocoa (${cocoa.pct}% of flour)` : "";
-  steps.push({ title: "Whisk the dry ingredients", spec: `${flour.name.toLowerCase()}${cocoaDry}${leaven ? " + leavening" : ""} + salt · whisk to combine`,
+  steps.push({ phase: "mix", title: "Whisk the dry ingredients", spec: `${flour.name.toLowerCase()}${cocoaDry}${leaven ? " + leavening" : ""} + salt · whisk to combine`,
     why: `Whisk the ${flour.name.toLowerCase()} (${flour.prot})${leaven ? ", the leavening," : ""} and salt together off to the side. Even dispersal stops soapy pockets of baking soda and pale/dark patches. ${cocoa && cocoa.on ? `Sift the cocoa in — it clumps. ${cocoa.mode === "natural" ? "Natural cocoa is acidic, so it reacts with the baking soda to brown harder and bloom the colour." : "Dutched cocoa is alkalised and pH-neutral, so it leans on the baking powder; with soda alone it tastes flat and over-browns."}` : ""}`,
     more: `Choosing the flour is choosing the chew: at ${flour.name} (${flour.prot}) the protein — and so how hard you mix next — ${chewWord}.`,
     ing: [{ k: flour.name, g: round(v.flourMass) },
@@ -671,18 +671,18 @@ function buildSteps(p) {
       { k: "Salt", g: round(v.salt, 1) }] });
 
   if (sablage) {
-    steps.push({ title: "Bring it together", spec: `${hasEgg ? "add the egg/yolk" : "add a splash of cream or water"} · press just until it clumps into a dough`,
+    steps.push({ phase: "mix", title: "Bring it together", spec: `${hasEgg ? "add the egg/yolk" : "add a splash of cream or water"} · press just until it clumps into a dough`,
       why: "Add the liquid to the sandy mix and press — don't knead — just until it comes together into a dough. Any real kneading now starts building the gluten you worked to avoid, turning short into tough.",
       more: "Pat into a disc, wrap, and chill before rolling or slicing." });
   } else {
-    steps.push({ title: "Combine — just until it comes together", spec: "add the dry to the wet · mix until the last flour streak vanishes · stop",
+    steps.push({ phase: "mix", title: "Combine — just until it comes together", spec: "add the dry to the wet · mix until the last flour streak vanishes · stop",
       why: `Add the dry to the wet and mix only until the last streak of flour disappears. Every extra turn develops the gluten network (Cauvain, Ch.2: mixing is what builds gluten) — past just-combined the cookie turns tough and bready instead of tender. At ${flour.name} this ${chewWord}.`,
       more: "Finish by hand with a spatula for control, scraping the bottom of the bowl where dry flour hides." });
   }
 
   if (folded.length) {
     const lines = folded.map((t) => `${t.icon} ${t.label} — ${verbosity >= 2 ? t.prep : t.short}`).join("\n");
-    steps.push({ title: "Fold in the add-ins", spec: folded.map((t) => t.label).join(" · "),
+    steps.push({ phase: "mix", title: "Fold in the add-ins", spec: folded.map((t) => t.label).join(" · "),
       why: lines,
       more: "Fold by hand just to distribute — overmixing now both toughens the dough and smears the chocolate. Reserve a few chips/nuts to press onto the tops.",
       ing: folded.map((t) => t.id === "chips"
@@ -692,7 +692,7 @@ function buildSteps(p) {
 
   // Chill / rest
   if (chillIdx === 0) {
-    steps.push({ title: "Scoop straight away", spec: `${sc.label.toLowerCase()} scoops (${sc.g}g) · no chill`,
+    steps.push({ phase: "shape", title: "Scoop straight away", spec: `${sc.label.toLowerCase()} scoops (${sc.g}g) · no chill`,
       why: `Skipping the chill means the fat is soft and the cookies spread to their thinnest, flattest extent — exactly what you want for ${sugarPct >= 100 ? "a lacy, crisp" : "a thin, even"} cookie. Scoop and get them in.`,
       more: "If the kitchen is hot and they're spreading into each other, a 15-minute fridge firm-up is a cheap insurance." });
   } else {
@@ -701,7 +701,7 @@ function buildSteps(p) {
       : chillIdx === 2
       ? `Rest the dough overnight. The fat firms so it spreads slower and the cookie bakes taller, the flour fully hydrates for a more even crumb, and the flavour deepens and browns better than a same-day bake (McGee).`
       : `An hour in the fridge firms the butter so the cookies hold their shape and don't spread to a puddle — the simplest lever on spread there is.`;
-    steps.push({ title: chill.name, spec: `${chill.short} · ${chill.clock}${sablage ? " · also makes it rollable" : ""}`,
+    steps.push({ phase: "chill", title: chill.name, spec: `${chill.short} · ${chill.clock}${sablage ? " · also makes it rollable" : ""}`,
       why,
       more: chillIdx >= 2 ? "Scoop cold, straight from the fridge — cold dough holds its height in the oven. Let bakery-size scoops sit 5 min if they're rock-hard." : "Scoop chilled for the best shape." });
   }
@@ -712,7 +712,7 @@ function buildSteps(p) {
   if (p.styleId === "snicker") shapeNote.push("roll in cinnamon sugar");
   if (p.styleId === "pnut") shapeNote.push("press the criss-cross with a fork");
   const cutout = p.styleId === "gingerbread" || (sablage && p.styleId !== "sable") || p.styleId === "sugar";
-  steps.push({ title: cutout ? "Roll, cut & space" : "Scoop & space", spec: cutout
+  steps.push({ phase: "shape", title: cutout ? "Roll, cut & space" : "Scoop & space", spec: cutout
       ? "roll ~5mm · cut shapes · space on a lined sheet"
       : `${sc.g}g balls · ${Math.max(6, Math.round(640 / sc.g))}-ish per sheet · spaced for spread${shapeNote.length ? " · " + shapeNote.join(" · ") : ""}`,
     why: cutout
@@ -726,7 +726,7 @@ function buildSteps(p) {
     : ovenF <= 325
     ? "the slow set lets the dough spread further and dry more evenly, for a flatter, crisper, more uniform cookie"
     : "you get a balanced spread and set";
-  steps.push({ title: `Bake — ${ovenF}°F / ${ovenC}°C`, spec: `middle rack · one sheet · ${sc.min}–${sc.max} min · rotate halfway`,
+  steps.push({ phase: "bake", title: `Bake — ${ovenF}°F / ${ovenC}°C`, spec: `middle rack · one sheet · ${sc.min}–${sc.max} min · rotate halfway`,
     why: `Bake one sheet on the middle rack and rotate halfway. It's a race between spreading and setting: at ${ovenF}°F ${setVsSpread}. Pull them when the edges are set and golden but the centres still look slightly underdone — they finish on the sheet. Browning is Maillard (proteins + reducing sugars) plus sugar caramelization, both steeply temperature-dependent (McGee).`,
     more: `Convection bakes faster and spreads more — drop 15–25°F. For dense, fudgy, rippled centres, rap the sheet on the counter once or twice mid-bake to deflate them.${p.styleId === "snicker" || p.styleId === "sugar" ? " Keep these pale — pull before they colour." : ""}` });
 
@@ -734,7 +734,7 @@ function buildSteps(p) {
   const finishLine = finishers.length
     ? ` ${finishers.map((t) => t.icon + " " + t.label.replace(" (finish)", "")).join(" + ")} goes on now, while the tops are warm and tacky enough to hold it.`
     : "";
-  steps.push({ title: "Cool on the sheet, then move", spec: "5 min on the hot sheet · then a wire rack",
+  steps.push({ phase: "cool", title: "Cool on the sheet, then move", spec: "5 min on the hot sheet · then a wire rack",
     why: `Let them sit 5 minutes on the hot sheet: carryover heat finishes the underdone centre and the cookie sets enough to lift without tearing. Then move to a rack so the bottoms don't steam soft against the pan.${finishLine}`,
     more: "For the chewiest result, underbake slightly and let the carryover do the rest. They keep best airtight; a slice of bread in the tub keeps soft cookies soft.",
     ing: finishers.map((t) => ({ k: `${t.icon} ${t.label.replace(" (finish)", "")}`, g: null, note: "to finish" })) });
@@ -743,13 +743,10 @@ function buildSteps(p) {
 }
 
 // ---------------------------------------------------------------------------
-// Prep timeline — lays the butter and add-in prep out on the dough's own clock
-// so you can see, at a glance, what to start first and what has to finish
-// (cool, dry…) before it can go in. The numbered Process steps are unchanged;
-// this only re-orders the *prep* into a single dependency-aware line.
+// Bake timeline — the phases of the bake (top→bottom), each carrying the dough's
+// action for that phase, the ingredients to add then, and any ingredient prep
+// (butter, add-ins) that has to be ready by then. Drives the vertical gantt.
 // ---------------------------------------------------------------------------
-const PHASE_ORDER = ["ahead", "mix", "chill", "shape", "bake", "cool"];
-
 function buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins }) {
   const sc = SCOOPS[scoop];
   const hasChill = chillIdx > 0;
@@ -793,69 +790,79 @@ function buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins }) {
       .filter((t) => t.plan),
   ];
 
-  // Linearised: same prep, sorted into one do-this-then-that order (stable, so
-  // ties keep registry order). This is the explicit "linear order" view.
-  const ordered = tracks
-    .map((t, i) => ({ t, i }))
-    .sort((a, b) => (PHASE_ORDER.indexOf(a.t.plan.phase) - PHASE_ORDER.indexOf(b.t.plan.phase)) || (a.i - b.i))
-    .map((x) => x.t);
-
-  return { phases, spine, tracks, ordered };
+  return { phases, spine, tracks };
 }
 
-// A horizontal Gantt of the prep: phases run left→right across the x-axis of
-// time; the dough spine is the top band; each ingredient sits under the moment
-// its prep happens, with its icon on the axis. Scrolls sideways on narrow
-// screens. Purely presentational — state (ticking) lives in the ordered list.
-function TimeGraph({ phases, spine, tracks, C, accent }) {
-  const cols = `96px ${phases.map((p) => `minmax(74px, ${p.weight}fr)`).join(" ")}`;
-  const line = (i) => (i === 0 ? "none" : `1px solid ${C.line}`);
-
-  const chip = (t) => (
-    <div style={{ background: C.paperDeep, border: `1px solid ${C.line}`, borderLeft: `3px solid ${accent}`, borderRadius: 8, padding: "5px 7px", width: "100%" }}>
-      <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.25, color: C.ink }}>{t.icon} {t.plan.do}</div>
-      {t.plan.dur && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: accent, fontWeight: 600, marginTop: 2 }}>⏱ {t.plan.dur}</div>}
-      {t.plan.dep && <div style={{ fontSize: 10.5, fontStyle: "italic", color: C.inkSoft, lineHeight: 1.3, marginTop: 2 }}>↳ {t.plan.dep}</div>}
+// A vertical timeline of the bake: phases run top→bottom, each with a wide block
+// beside it — the dough's action(s) for that phase (the "why" on hover), the
+// ingredients + grams to add then, and any ingredient prep (butter, add-ins)
+// due by then. Going vertical gives the ingredients room. Purely presentational.
+function TimeGraph({ phases, spine, tracks, stepsByPhase, C, accent }) {
+  const cup = (items) => (
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "5px 9px", background: C.card }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px" }}>
+        {items.map((it) => (
+          <span key={it.k} style={{ fontSize: 12, color: C.ink, whiteSpace: "nowrap" }}>
+            {it.k} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: accent }}>{it.g != null ? `${it.g}g` : (it.note || "to taste")}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 
   return (
-    <div style={{ overflowX: "auto", paddingBottom: 4 }}>
-      <div style={{ minWidth: 96 + phases.length * 92, display: "grid", gridTemplateColumns: cols, rowGap: 6, alignItems: "stretch" }}>
-        {/* x-axis: phase labels + clocks */}
-        <div />
-        {phases.map((p, i) => (
-          <div key={p.key} style={{ borderLeft: line(i), padding: "0 6px 4px" }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 }}>{p.label}</div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: accent, fontWeight: 600 }}>{p.clock}</div>
-          </div>
-        ))}
-
-        {/* the dough's own timeline */}
-        <div style={{ display: "flex", alignItems: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: C.inkSoft }}>Dough</div>
-        {phases.map((p, i) => (
-          <div key={p.key} style={{ borderLeft: line(i), padding: "0 4px", display: "flex", alignItems: "center" }}>
-            {spine[p.key] && (
-              <div style={{ background: accent, color: C.onAccent, borderRadius: 7, padding: "6px 8px", fontSize: 11.5, fontWeight: 600, lineHeight: 1.2, width: "100%" }}>{spine[p.key]}</div>
-            )}
-          </div>
-        ))}
-
-        {/* one lane per ingredient — icon rides the axis at its prep time */}
-        {tracks.map((t) => (
-          <React.Fragment key={t.id}>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 600, color: C.ink }}>
-              <span style={{ fontSize: 15 }}>{t.icon}</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
-            </div>
-            {phases.map((p, i) => (
-              <div key={p.key} style={{ borderLeft: line(i), padding: "0 4px", display: "flex", alignItems: "center" }}>
-                {t.plan.phase === p.key ? chip(t) : null}
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {phases.map((p, i) => {
+        const steps = (stepsByPhase && stepsByPhase[p.key]) || [];
+        const phaseTracks = tracks.filter((t) => t.plan.phase === p.key);
+        const last = i === phases.length - 1;
+        const hasBody = steps.length || phaseTracks.length || spine[p.key];
+        return (
+          <div key={p.key} style={{ display: "grid", gridTemplateColumns: "minmax(80px, 104px) 1fr", gap: 12, alignItems: "start" }}>
+            {/* left: dot on a connecting rail, phase label + clock */}
+            <div style={{ display: "flex", gap: 9, paddingBottom: last ? 2 : 16 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch" }}>
+                <div style={{ width: 13, height: 13, borderRadius: "50%", background: accent, flexShrink: 0, marginTop: 3 }} />
+                {!last && <div style={{ width: 2, flex: 1, minHeight: 12, background: C.line, marginTop: 2 }} />}
               </div>
-            ))}
-          </React.Fragment>
-        ))}
-      </div>
+              <div style={{ paddingTop: 1 }}>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: C.ink, fontWeight: 700, lineHeight: 1.2 }}>{p.label}</div>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: accent, fontWeight: 600 }}>{p.clock}</div>
+              </div>
+            </div>
+            {/* right: method steps (why on hover) + ingredient cups, then prep tracks */}
+            <div style={{ paddingBottom: last ? 2 : 16 }}>
+              {hasBody && (
+                <div style={{ background: C.paperDeep, border: `1px solid ${C.line}`, borderLeft: `3px solid ${accent}`, borderRadius: 9, padding: "9px 12px" }}>
+                  {steps.length > 0 ? steps.map((s) => (
+                    <div key={s.n} style={{ marginBottom: 8 }}>
+                      <div title={s.why + (s.more ? `\n\n${s.more}` : "")} style={{ cursor: "help", fontSize: 13.5, fontWeight: 600, color: C.ink, display: "flex", alignItems: "baseline", gap: 6 }}>
+                        {s.title}<span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: C.inkSoft, fontWeight: 400 }}>ⓘ why</span>
+                      </div>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, marginTop: 2 }}>
+                        {s.spec.split(" · ").map((seg, k) => (
+                          <span key={s.n + ":" + k} style={{ display: "block", paddingLeft: 11, textIndent: -9, lineHeight: 1.45 }}>• {seg}</span>
+                        ))}
+                      </div>
+                      {s.ing && s.ing.length > 0 && (
+                        <div style={{ marginTop: 5 }}>{cup(s.ing)}</div>
+                      )}
+                    </div>
+                  )) : (spine[p.key] && <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{spine[p.key]}</div>)}
+
+                  {phaseTracks.map((t) => (
+                    <div key={t.id} style={{ fontSize: 12, color: C.inkSoft, lineHeight: 1.4, marginTop: 7 }}>
+                      <span style={{ fontWeight: 600, color: C.ink }}>{t.icon} {t.plan.do}</span>
+                      {t.plan.dur && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: accent, fontWeight: 600 }}> · ⏱ {t.plan.dur}</span>}
+                      {t.plan.dep && <span style={{ fontStyle: "italic" }}> ↳ {t.plan.dep}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -884,7 +891,6 @@ export default function CookieBuildSheet() {
   const [addinSel, setAddinSel] = useState({ chips: true, flakysalt: true });
   const [cocoaMode, setCocoaMode] = useState("natural"); // natural | dutch
   const [cocoaPct, setCocoaPct] = useState(25);           // cocoa as % of flour
-  const [prepDone, setPrepDone] = useState({});           // mise-en-place checklist
   const verbosity = 1; // steps are always succinct — the verbosity control was dropped
   // Light/dark + vibe inherit from the host Quartz blog (`saved-theme` /
   // `saved-vibe` on <html>); standalone → light + jdm.
@@ -936,7 +942,6 @@ export default function CookieBuildSheet() {
   }
   function applySpecial(id) { setSpecial(id); setOpenStep("01"); }
   const toggleAddin = (id) => setAddinSel((t) => ({ ...t, [id]: !t[id] }));
-  const togglePrep = (key) => setPrepDone((p) => ({ ...p, [key]: !p[key] }));
   const activeStyle = boundStyle || "custom";
   const freestyleNearest = (!boundStyle && !special) ? solved.style : null;
   const selectedAddins = ADDINS.filter((a) => addinSel[a.id]);
@@ -1054,6 +1059,13 @@ export default function CookieBuildSheet() {
     [method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flourIdx, chillIdx, sodaShare, ovenF, scoop, addinSel, cocoaOn, cocoaMode, cocoaPct, verbosity, activeStyle, v, saltPct]);
   const timeline = useMemo(() => buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins: selectedAddins }),
     [method, chillIdx, scoop, ovenF, addinSel]);
+  // Process steps bucketed onto their timeline phase, so each gantt block shows
+  // its method bullets (with the "why" on hover) and the ingredients to add then.
+  const stepsByPhase = useMemo(() => {
+    const m = {};
+    dialSteps.forEach((s) => { if (s.phase) (m[s.phase] = m[s.phase] || []).push(s); });
+    return m;
+  }, [dialSteps]);
 
   // Live profile chips
   const spreadScore = (sugarPct - 70) * 0.5 + (butterPct - 55) * 0.6
@@ -1471,43 +1483,18 @@ export default function CookieBuildSheet() {
           )}
         </div>
 
-        {/* Prep timeline — the add-in prep, laid out on the dough's own clock */}
+        {/* Bake timeline — phases top→bottom, each with the dough's action, the
+            ingredients to add then (with grams), and any prep due. */}
         <div style={{ background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, flexWrap: "wrap", gap: 6 }}>
-            <span style={{ fontSize: 15, fontWeight: 600 }}>Prep timeline — what to do when</span>
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>left → right = first → last</span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>Method timeline — what to do when</span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>top → bottom = first → last</span>
           </div>
           <div style={{ fontSize: 12.5, color: C.inkSoft, fontStyle: "italic", marginBottom: 11 }}>
-            The top band is the dough's own clock; each ingredient sits under the moment its prep happens. <span style={{ fontStyle: "normal" }}>⏱</span> marks a step that takes time — start it at the left of its block. <span style={{ fontStyle: "normal" }}>↳</span> is what it has to finish (cool, dry…) before it can go in.
+            Each block is a phase of the bake; the card beside it is what the dough's doing (hover <span style={{ fontStyle: "normal" }}>ⓘ why</span> for the science), what to add then with grams, and any ingredient prep due. <span style={{ fontStyle: "normal" }}>⏱</span> marks a step that takes time; <span style={{ fontStyle: "normal" }}>↳</span> is what it has to finish before it can go in.
           </div>
 
-          <TimeGraph phases={timeline.phases} spine={timeline.spine} tracks={timeline.tracks} C={C} accent={C.butter} />
-
-          {/* Same prep, linearised into one order — tick as you go */}
-          <div style={{ borderTop: `1.5px solid ${C.line}`, marginTop: 12, paddingTop: 11 }}>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.2, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600, marginBottom: 9 }}>In order · tick as you go</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {timeline.ordered.map((t, i) => {
-                const key = `plan:${t.id}`;
-                const done = !!prepDone[key];
-                return (
-                  <button key={key} onClick={() => togglePrep(key)} style={{
-                    display: "flex", gap: 10, alignItems: "flex-start", textAlign: "left", cursor: "pointer",
-                    background: "transparent", border: "none", padding: "1px 0", fontFamily: "'Fraunces', serif", color: C.ink }}>
-                    <span style={{ width: 17, height: 17, borderRadius: 5, border: `2px solid ${done ? C.butter : C.line}`, background: done ? C.butter : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.onAccent, lineHeight: 1, marginTop: 2 }}>{done ? "✓" : ""}</span>
-                    <span style={{ flex: 1, lineHeight: 1.4 }}>
-                      <span style={{ fontSize: 14, color: done ? C.inkSoft : C.ink, textDecoration: done ? "line-through" : "none", opacity: done ? 0.7 : 1 }}>
-                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: C.bake, marginRight: 7 }}>{String(i + 1).padStart(2, "0")}</span>
-                        {t.icon} {t.plan.do}
-                        {t.plan.dur && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, color: C.butter, fontWeight: 600 }}> · ⏱ {t.plan.dur}</span>}
-                      </span>
-                      {t.plan.dep && <span style={{ display: "block", fontSize: 12, fontStyle: "italic", color: C.inkSoft, marginTop: 1 }}>↳ {t.plan.dep}</span>}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <TimeGraph phases={timeline.phases} spine={timeline.spine} tracks={timeline.tracks} stepsByPhase={stepsByPhase} C={C} accent={C.butter} />
         </div>
         </>}
 
@@ -1523,8 +1510,8 @@ export default function CookieBuildSheet() {
           </div>
         </div>
 
-        {/* Ingredients — by physical step (dial recipes) or the fixed recipe's own grouping */}
-        {specialRecipe ? (
+        {/* Ingredient table — fixed recipes only; dial recipes list ingredients on the timeline */}
+        {specialRecipe && (
           <div style={{ borderRadius: 14, border: `1.5px solid ${C.line}`, overflow: "hidden", marginBottom: 14, background: C.card }}>
             {groups.map((grp, gi) => (
               <div key={grp.title}>
@@ -1549,36 +1536,6 @@ export default function CookieBuildSheet() {
                         </>
                       ) : (
                         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.inkSoft }}>{r.note ? "to taste" : "—"}</span>
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ borderRadius: 14, border: `1.5px solid ${C.line}`, overflow: "hidden", marginBottom: 14, background: C.card }}>
-            <div style={{ padding: "11px 18px 9px", background: C.paperDeep }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, letterSpacing: 1.5, textTransform: "uppercase", color: C.inkSoft, fontWeight: 600 }}>▸ Ingredients · by step</div>
-              <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>each amount listed at the physical step that uses it · {round(v.doughWeight)}g dough total</div>
-            </div>
-            {STEPS.filter((s) => s.ing && s.ing.length).map((s) => (
-              <div key={s.n}>
-                <div style={{ padding: "10px 18px 6px", borderTop: `1.5px solid ${C.line}`, display: "flex", gap: 10, alignItems: "baseline" }}>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 600, color: C.bake }}>{s.n}</span>
-                  <span style={{ fontSize: 14.5, fontWeight: 600 }}>{s.title}</span>
-                </div>
-                {s.ing.map((it, i) => (
-                  <div key={it.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 18px 8px 38px", borderTop: i === 0 ? "none" : `1px solid ${C.paperDeep}` }}>
-                    <span style={{ fontSize: 15 }}>
-                      {it.k}
-                      {it.note && <span style={{ display: "block", fontSize: 11, color: C.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{it.note}</span>}
-                    </span>
-                    <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      {it.g != null ? (
-                        <><Num color={C.ink}><span style={{ fontSize: 18 }}>{it.g}</span></Num><span style={{ fontSize: 13, color: C.inkSoft }}> g</span></>
-                      ) : (
-                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.inkSoft }}>to taste</span>
                       )}
                     </span>
                   </div>
@@ -1629,10 +1586,11 @@ export default function CookieBuildSheet() {
           </div>
         )}
 
-        {/* Process — succinct bullet steps; tap any step for the why */}
+        {/* Process — fixed recipes only; dial recipes carry their steps on the timeline above */}
+        {specialRecipe && (<>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: C.choc, fontWeight: 600, marginBottom: 12 }}>
           <span>Process — tap any step for the why</span>
-          <span style={{ color: C.inkSoft, letterSpacing: 1 }}>{specialRecipe ? specialRecipe.clock : `${chill.clock} + bake`}</span>
+          <span style={{ color: C.inkSoft, letterSpacing: 1 }}>{specialRecipe.clock}</span>
         </div>
 
         {STEPS.map((s) => {
@@ -1659,6 +1617,7 @@ export default function CookieBuildSheet() {
             </div>
           );
         })}
+        </>)}
 
         <div style={{ textAlign: "center", marginTop: 26, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, letterSpacing: 1, lineHeight: 1.6 }}>
           baker's % locked to flour mass · everything scales live<br />
