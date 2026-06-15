@@ -1,20 +1,16 @@
 # HANDOFF — cookiebot
 
-> ⚠️ **GIT DIVERGENCE — read before pushing (2026-06-15).** Local `main` and the
-> deployed blog widget run the **inverted model** (`src/cookie-model.js`,
-> qualities → recipe). But `origin/main` has a *different* lineage: commit
-> `b05e764` ("Inherit page vibe + brightness… converge with blog (backport env
-> panel)"), which is the **older forward dashboard + a GeoCities skin** — it never
-> imported the inverse model and was never deployed. The big inverse-model rewrite
-> was only ever copied to the blog, never committed to this repo's history.
-> My nutrition commit (`ea878c0`) sits on the inverted lineage and is **unpushed**
-> (a rebase onto `b05e764` hit 10 conflicts — the two lineages are too far apart
-> to auto-merge). **Do not force-push over `b05e764`** without deciding whether the
-> GeoCities/vibe work should be preserved and folded into the inverted model.
-> The nutrition feature itself IS live on the blog (verbatim copy + build:widgets).
+> ✅ **Git divergence resolved (2026-06-15).** `origin/main` had a divergent
+> lineage (`b05e764`: the older forward dashboard + a GeoCities vibe skin) that
+> was never deployed. Its one unique feature — the GeoCities skin — has been
+> folded into the inverse-model build sheet (`f0d16a5`), and the two histories
+> were reconciled with an `-s ours` merge (`0031fee`), keeping the inverted tree
+> while recording `b05e764` as merged. `main` now carries the inverted model +
+> nutrition + the geo skin, and is the single source of truth again.
 
-State: **working, mid-feature.** The dashboard was inverted from "set ingredient
-amounts" to "drive qualities → get told the formula."
+State: **stable.** The dashboard drives *qualities* → formula (inverse model in
+`src/cookie-model.js`), shows per-100g nutrition (`src/nutrition.js`), and
+inherits the host blog's vibe incl. the GeoCities skin.
 
 ## What changed
 - **New `src/cookie-model.js`** — a two-layer multivariate model:
