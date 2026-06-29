@@ -922,11 +922,17 @@ export default function CookieBuildSheet() {
   // bind free water and so change the formula the sliders solve to. `addinLoads`
   // is the selected loads as fractions of flour, fed into the inverse model.
   const [addinSel, setAddinSel] = useState({ chips: true, flakysalt: true });
+  // Per-topping load overrides (baker's % of flour). Absent → use the add-in's
+  // recommended `load`. `effLoad` is the single source the whole sheet reads, so
+  // adjusting a topping flows into mass, nutrition, the displayed %, and the
+  // solver's water budget alike. Centered on the recommendation (see the panel).
+  const [addinLoadPct, setAddinLoadPct] = useState({});
+  const effLoad = (a) => (a.load != null && addinLoadPct[a.id] != null) ? addinLoadPct[a.id] : a.load;
   const addinLoads = useMemo(() => {
     const o = {};
-    for (const a of ADDINS) if (addinSel[a.id] && a.load != null) o[a.id] = a.load / 100;
+    for (const a of ADDINS) if (addinSel[a.id] && a.load != null) o[a.id] = effLoad(a) / 100;
     return o;
-  }, [addinSel]);
+  }, [addinSel, addinLoadPct]);
   const solved = useMemo(() => boundStyle
     ? solveWithin(q, identityOf(STYLE_BY_ID[boundStyle].set), { scoop, addins: addinLoads })
     : solveConforming(q, STYLES, { scoop, addins: addinLoads }), [q, scoop, boundStyle, addinLoads]);
@@ -995,7 +1001,9 @@ export default function CookieBuildSheet() {
   const toggleAddin = (id) => setAddinSel((t) => ({ ...t, [id]: !t[id] }));
   const activeStyle = boundStyle || "custom";
   const freestyleNearest = (!boundStyle && !special) ? solved.style : null;
-  const selectedAddins = ADDINS.filter((a) => addinSel[a.id]);
+  // each selected add-in carries its *effective* load, so mass/nutrition/steps
+  // all read the dialed amount rather than the static recommendation.
+  const selectedAddins = ADDINS.filter((a) => addinSel[a.id]).map((a) => ({ ...a, load: effLoad(a) }));
 
   const f = Math.max(0, Number(flourG) || 0);
   const flour = FLOURS[flourIdx];
@@ -1081,7 +1089,7 @@ export default function CookieBuildSheet() {
     const flourMass = f - cocoaLoad;
     const doughWeight = flourMass + cocoaLoad + totalSugar + butter + egg + soda + powder + vanilla + addinDoughMass;
     return { totalSugar, brown, white, butter, egg, salt, soda, powder, chips, vanilla, addinG, addinFinishMass, flourMass, doughWeight };
-  }, [f, sugarPctEff, brownPct, butterPct, eggPct, saltPct, leaven, sodaShare, addinSel, cocoaLoad, leavenEnvFactor]);
+  }, [f, sugarPctEff, brownPct, butterPct, eggPct, saltPct, leaven, sodaShare, addinSel, addinLoadPct, cocoaLoad, leavenEnvFactor]);
 
   const specialDef = special ? SPECIAL_BY_ID[special] : null;
   const specialRecipe = useMemo(() => (specialDef ? specialDef.recipe(f) : null), [special, f]);
@@ -1116,7 +1124,7 @@ export default function CookieBuildSheet() {
   const sc = SCOOPS[scoop];
   const cookieCount = v.doughWeight > 0 ? Math.max(1, Math.floor(v.doughWeight / sc.g)) : 0;
   const dialSteps = useMemo(() => buildSteps({ method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flour, chill, chillIdx, sodaShare, ovenF, scoop, addins: selectedAddins, cocoa, verbosity, styleId: activeStyle, v, saltPct }),
-    [method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flourIdx, chillIdx, sodaShare, ovenF, scoop, addinSel, cocoaOn, cocoaMode, cocoaPct, verbosity, activeStyle, v, saltPct]);
+    [method, eggForm, leaven, sugarPct, brownPct, butterPct, eggPct, flourIdx, chillIdx, sodaShare, ovenF, scoop, addinSel, addinLoadPct, cocoaOn, cocoaMode, cocoaPct, verbosity, activeStyle, v, saltPct]);
   const timeline = useMemo(() => buildTimeline({ method, chill, chillIdx, scoop, ovenF, addins: selectedAddins }),
     [method, chillIdx, scoop, ovenF, addinSel]);
   // Process steps bucketed onto their timeline phase, so each gantt block shows
@@ -1171,7 +1179,7 @@ export default function CookieBuildSheet() {
   const ioState = {
     v: 1, kind: "cookie",
     flourG: f, q, scoop, boundStyle, special,
-    addinSel, cocoaMode, cocoaPct,
+    addinSel, addinLoadPct, cocoaMode, cocoaPct,
     zip, envDate, roomTempInput, tempUnit, humidityManual, envApplied,
     notes,
   };
@@ -1212,7 +1220,7 @@ export default function CookieBuildSheet() {
     L.push("Paste this whole block into the Import box to reload this recipe.");
     L.push(`@${IO_TAG} v1@ ${JSON.stringify(ioState)}`);
     return L.join("\n");
-  }, [recipeName, special, boundStyle, f, specialRecipe, cookieCount, sc, groups, STEPS, profile, notes, envOn, envData, elevFtUsed, humidityUsed, roomTempInput, tempUnit, q, scoop, addinSel, cocoaMode, cocoaPct, zip, envDate, humidityManual, envApplied]);
+  }, [recipeName, special, boundStyle, f, specialRecipe, cookieCount, sc, groups, STEPS, profile, notes, envOn, envData, elevFtUsed, humidityUsed, roomTempInput, tempUnit, q, scoop, addinSel, addinLoadPct, cocoaMode, cocoaPct, zip, envDate, humidityManual, envApplied]);
 
   function loadRecipe() {
     const d = parseRecipeBlock(importText);
@@ -1225,6 +1233,7 @@ export default function CookieBuildSheet() {
       setBoundStyle(d.boundStyle ?? null);
       setSpecial(d.special ?? null);
       if (d.addinSel && typeof d.addinSel === "object") setAddinSel(d.addinSel);
+      setAddinLoadPct(d.addinLoadPct && typeof d.addinLoadPct === "object" ? d.addinLoadPct : {});
       if (d.cocoaMode) setCocoaMode(d.cocoaMode);
       if (typeof d.cocoaPct === "number") setCocoaPct(d.cocoaPct);
       if (typeof d.zip === "string") setZip(d.zip);
@@ -1624,6 +1633,49 @@ export default function CookieBuildSheet() {
                 {" "}{cocoaMode === "natural"
                   ? <>Natural cocoa is <Num color={C.choc}>acidic</Num>, so it pairs with the <Num color={C.ink}>baking soda</Num> — the soda neutralises it, browns harder and blooms the colour. Keep the dial soda-leaning.</>
                   : <>Dutched cocoa is alkalised and <Num color={C.choc}>pH-neutral</Num>, so lean on <Num color={C.ink}>baking powder</Num>; with soda alone it tastes flat and over-browns.</>}
+              </div>
+            </div>
+          )}
+
+          {/* Topping amounts — dial each selected topping around its recommended
+              load. The recommendation is the slider's center; thirsty toppings
+              (oats, coconut) re-solve the formula via the model's water budget. */}
+          {selectedAddins.some((a) => a.load != null) && (
+            <div style={{ marginTop: 11, background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 11, padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 9, flexWrap: "wrap", gap: 6 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 600 }}>Topping amounts</span>
+                <span style={{ fontFamily: mono, fontSize: 10.5, color: C.inkSoft }}>baker's % of flour · centered on the recommendation</span>
+              </div>
+              <div style={{ display: "grid", gap: 11 }}>
+                {ADDINS.filter((t) => addinSel[t.id] && t.load != null).map((t) => {
+                  const rec = t.load;
+                  const cur = effLoad(t);
+                  const off = Math.abs(cur - rec) > 1e-9;
+                  const step = rec >= 20 ? 5 : rec >= 5 ? 1 : 0.1;
+                  const dp = step < 1 ? 1 : 0;
+                  const max = rec >= 5 ? Math.round(2 * rec) : Math.round(2 * rec * 10) / 10;
+                  return (
+                    <div key={t.id}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: mono, fontSize: 12, marginBottom: 3, gap: 8 }}>
+                        <span style={{ color: C.ink, fontWeight: 600, fontFamily: "'Fraunces', serif" }}>{t.icon} {t.label.replace(" (finish)", "")}</span>
+                        <span style={{ color: C.inkSoft, whiteSpace: "nowrap" }}>
+                          <span style={{ color: off ? C.butter : C.ink, fontWeight: 600 }}>{round(cur, dp)}%</span>
+                          {" · "}<Num color={off ? C.butter : C.ink}>{round(v.addinG[t.id] || 0, dp)}g</Num>
+                          {off
+                            ? <button onClick={() => setAddinLoadPct((m) => { const n = { ...m }; delete n[t.id]; return n; })} title={`reset to recommended ${rec}%`} style={{ marginLeft: 9, border: "none", background: "transparent", color: C.inkSoft, cursor: "pointer", fontFamily: mono, fontSize: 12, padding: 0 }}>↺ {rec}%</button>
+                            : <span style={{ marginLeft: 9, color: C.inkSoft, opacity: 0.7 }}>rec</span>}
+                        </span>
+                      </div>
+                      <input type="range" min={0} max={max} step={step} value={cur} list={`rec-${t.id}`}
+                        onChange={(e) => setAddinLoadPct((m) => ({ ...m, [t.id]: Number(e.target.value) }))}
+                        style={{ width: "100%", accentColor: C.butter, margin: 0 }} />
+                      <datalist id={`rec-${t.id}`}><option value={rec}></option></datalist>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11.5, color: C.inkSoft, fontStyle: "italic", marginTop: 9, lineHeight: 1.45 }}>
+                Each topping starts at its recommended load (the tick). Pile on a thirsty one — oats, coconut — and the dough stiffens, so the formula re-solves to hold your spread &amp; chew.
               </div>
             </div>
           )}
