@@ -204,8 +204,11 @@ async function fetchKitchenEnv(zip, dateISO) {
 // uses less total powder than a baking-powder one.
 const SODA_MAX = 1.0;    // all-soda setting -> 1.0% soda
 const POWDER_MAX = 2.0;  // all-powder setting -> 2.0% baking powder
-const CHIPS_PCT = 60;    // chocolate-chip load as % of flour when chips are on
+const VANILLA_PCT = 2.0; // pure vanilla extract, as % of flour (~2 tsp on a 250g base)
 const EGG_G = 50;        // one large egg, grams
+// Every add-in carries a `load` (baker's % of flour) in ADDINS below, so it gets a
+// real weight in the mass balance instead of a hand-waved "to taste". Chocolate
+// chips sit at 60% (the old CHIPS_PCT).
 
 // ---- Flour, chill, method, egg, scoop registries ---------------------------
 const FLOURS = [
@@ -339,7 +342,8 @@ const SPECIAL_STYLES = [
         ] },
         { title: "The almonds & aromatics", caption: "whole, skin-on, untoasted", brine: true, items: [
           { k: "Whole almonds", g: bp(f, 60), pct: 60, accent: true, note: "fold in whole — they toast in the bake" },
-          { k: "Orange zest + vanilla", g: null, pct: null, accent: true, note: "classic; a splash of vin santo too" },
+          { k: "Orange zest", g: bp(f, 2, 1), pct: 2, accent: true, note: "zest of ~1 orange + 1 tsp vanilla (≈4g)" },
+          { k: "Vin santo", g: bp(f, 6, 1), pct: 6, note: "optional — 1 tbsp; or skip for a stiffer dough" },
         ] },
       ],
       summary: [
@@ -379,11 +383,11 @@ const SPECIAL_STYLES = [
           { k: "Ground almonds", g: bp(f, 100), pct: 100, note: "blanched, finely ground" },
           { k: "Sugar (caster + icing)", g: bp(f, 95), pct: 95, note: "part caster, part icing" },
           { k: "Egg white", g: bp(f, 35), pct: 35, accent: true, note: "whisked to soft peaks (~1–1.5 whites)" },
-          { k: "Bitter-almond / amaretto", g: null, pct: null, note: "a few drops — the signature scent" },
+          { k: "Bitter-almond extract", g: bp(f, 1, 1), pct: 1, note: "≈¼ tsp (the signature scent); or 1 tsp amaretto" },
         ] },
         { title: "To finish", caption: "the crackled sugar shell", brine: true, items: [
           { k: "Icing sugar", g: bp(f, 20), pct: 20, accent: true, note: "roll the balls heavily before baking" },
-          { k: "Pinch of salt + zest", g: null, pct: null, accent: true, note: "orange or lemon, optional" },
+          { k: "Salt + zest", g: bp(f, 0.6, 1), pct: 0.6, accent: true, note: "fine salt + zest of ½ orange or lemon" },
         ] },
       ],
       summary: [
@@ -424,7 +428,7 @@ const SPECIAL_STYLES = [
         { title: "The meringue", caption: "French (raw) or Italian (syrup) method", brine: true, items: [
           { k: "Egg white (aged)", g: bp(f, 38), pct: 38, accent: true, note: "split: part in the meringue, part in the paste" },
           { k: "Caster sugar", g: bp(f, 38), pct: 38, accent: true, note: "whipped into the whites" },
-          { k: "Gel colour + flavour", g: null, pct: null, accent: true, note: "no liquid — it slackens the batter" },
+          { k: "Gel colour + flavour", g: bp(f, 0.5, 1), pct: 0.5, accent: true, note: "≈¼ tsp gel paste — never liquid (it slackens the batter)" },
         ] },
       ],
       summary: [
@@ -467,7 +471,7 @@ const SPECIAL_BY_ID = Object.fromEntries(SPECIAL_STYLES.map((s) => [s.id, s]));
 // Prep timeline gets its *ordering* and dependencies from ADDIN_PLAN below.
 // `finish: true` = goes on top after/at the end, not folded into the dough.
 const ADDINS = [
-  { id: "chips", icon: "🍫", label: "Chocolate chips/chunks", styles: ["hotrod", "thin", "chewy", "tollhouse", "doublechoc"],
+  { id: "chips", icon: "🍫", label: "Chocolate chips/chunks", styles: ["hotrod", "thin", "chewy", "tollhouse", "doublechoc"], load: 60,
     short: "folded in last; reserve some for the tops",
     prep: "Chips hold their shape; a chopped bar gives molten puddles and shardy edges — use a mix. Fold in last so they don't smear the dough grey, and press a few extra onto each ball before baking so the tops look bakery-made.",
     prepSteps: ["Chop a bar for puddles, or use chips for shape", "Fold in at the very end", "Reserve a handful to press on top"] },
@@ -475,47 +479,47 @@ const ADDINS = [
     short: "swapped in for some of the flour", swap: true,
     prep: "Cocoa replaces some of the flour, so it dilutes the gluten (softer, more spread) and drinks fat and liquid (drier crumb). Natural cocoa is acidic and pairs with baking soda — the soda neutralises it, browns harder and blooms the colour; Dutched cocoa is alkalised and pH-neutral, so lean on baking powder or it tastes flat and over-browns. The cocoa panel does the swap math live.",
     prepSteps: ["Sift the cocoa with the flour to kill lumps", "Natural cocoa → baking soda; Dutched → baking powder", "Pull back the flour by the cocoa weight"] },
-  { id: "walnuts", icon: "🌰", label: "Walnuts / pecans", styles: ["hotrod", "tollhouse", "oatmeal", "chewy"],
+  { id: "walnuts", icon: "🌰", label: "Walnuts / pecans", styles: ["hotrod", "tollhouse", "oatmeal", "chewy"], load: 40,
     short: "toasted, chopped, folded in",
     prep: "Toast them first (8–10 min at 175°C) — raw nuts taste flat and go soft in the dough. Cool, chop, and fold in with the chips. The toasting builds the same Maillard nuttiness you're chasing in the cookie itself.",
     prepSteps: ["Toast at 175°C / 350°F for 8–10 min", "Cool, then chop", "Fold in with the chocolate"] },
-  { id: "oats", icon: "🌾", label: "Rolled oats", styles: ["oatmeal", "anzac"],
+  { id: "oats", icon: "🌾", label: "Rolled oats", styles: ["oatmeal", "anzac"], load: 75,
     short: "rolled (not instant); firm the dough", swapNote: true,
     prep: "Use old-fashioned rolled oats, not instant — they hold their chew. Oats absorb a lot of moisture and firm the dough, so they cut spread; if the dough turns stiff, a splash more egg or a touch less flour rebalances it. Toasting them first deepens the flavour.",
     prepSteps: ["Use rolled, not instant or steel-cut", "(optional) toast for deeper flavour", "Expect a stiffer dough — they drink moisture"] },
-  { id: "raisins", icon: "🍇", label: "Raisins / dried fruit", styles: ["oatmeal"],
+  { id: "raisins", icon: "🍇", label: "Raisins / dried fruit", styles: ["oatmeal"], load: 50,
     short: "plumped, patted dry",
     prep: "Soak raisins (or dried cranberries/cherries) in warm water or rum 10–15 min so they don't steal moisture from the dough and bake to bullets, then pat them dry before folding in.",
     prepSteps: ["Soak 10–15 min in warm water or rum", "Drain and pat dry", "Fold in with any nuts"] },
-  { id: "pb", icon: "🥜", label: "Peanut butter", styles: ["pnut"],
+  { id: "pb", icon: "🥜", label: "Peanut butter", styles: ["pnut"], load: 60,
     short: "creamed in with the butter",
     prep: "Beat it in with the butter and sugar. Peanut butter is extra fat and protein, so it tenderises but also dries — keep the brown sugar up for moisture, and don't overbake or it goes chalky.",
     prepSteps: ["Use no-stir (stabilised) for consistency", "Cream in with the butter & sugar", "Press the criss-cross to flatten the dense dough"] },
-  { id: "coconut", icon: "🥥", label: "Coconut", styles: ["anzac"],
+  { id: "coconut", icon: "🥥", label: "Coconut", styles: ["anzac"], load: 50,
     short: "desiccated or flaked, folded in",
     prep: "Desiccated coconut melts into the crumb; flaked gives chew and toasty edges. Either way it drinks moisture like oats, so expect a firmer dough.",
     prepSteps: ["Pick desiccated (fine) or flaked (chewy)", "Fold in with the oats", "Expect a drier, firmer dough"] },
-  { id: "spice", icon: "🌶️", label: "Cinnamon / spice", styles: ["oatmeal", "snicker", "speculoos", "gingerbread"],
+  { id: "spice", icon: "🌶️", label: "Cinnamon / spice", styles: ["oatmeal", "snicker", "speculoos", "gingerbread"], load: 1.5,
     short: "whisked into the dry",
     prep: "Whisk ground spice into the flour so it disperses evenly — cinnamon, plus clove, nutmeg, ginger and cardamom for speculoos/gingerbread. Bloom whole spices in the warm butter (if browning) for a rounder flavour.",
     prepSteps: ["Whisk ground spice into the flour", "(if browning butter) bloom whole spices in it", "Taste the raw dough and adjust"] },
-  { id: "toffee", icon: "🍯", label: "Toffee bits", styles: ["hotrod"],
+  { id: "toffee", icon: "🍯", label: "Toffee bits", styles: ["hotrod"], load: 30,
     short: "folded in; they melt to caramel",
     prep: "Toffee/Heath bits melt into little caramel pools and crisp at the edges. Fold in sparingly — they're pure sugar and push the cookie sweeter and crisper.",
     prepSteps: ["Fold in with the chocolate", "Keep the amount modest — pure sugar", "Expect crisper, sweeter edges"] },
-  { id: "espresso", icon: "☕", label: "Espresso powder", styles: ["doublechoc", "hotrod"],
+  { id: "espresso", icon: "☕", label: "Espresso powder", styles: ["doublechoc", "hotrod"], load: 1,
     short: "dissolved in; deepens chocolate",
     prep: "A teaspoon of instant espresso powder dissolved into the wet ingredients doesn't read as coffee — it deepens and rounds the chocolate, the same way a pinch of it lifts a brownie.",
     prepSteps: ["Dissolve into the egg/vanilla", "Start with ~1 tsp", "Tastes like deeper chocolate, not coffee"] },
-  { id: "zest", icon: "🍋", label: "Citrus zest", styles: ["sugar", "sable", "shortbread"],
+  { id: "zest", icon: "🍋", label: "Citrus zest", styles: ["sugar", "sable", "shortbread"], load: 2,
     short: "rubbed into the sugar",
     prep: "Rub the zest into the sugar with your fingertips before creaming — it bruises the oils out of the zest and perfumes the whole batch far better than just stirring it in.",
     prepSteps: ["Zest only the coloured layer, no pith", "Rub into the sugar until fragrant & damp", "Then cream as usual"] },
-  { id: "flakysalt", icon: "🧂", label: "Flaky salt (finish)", styles: ["hotrod", "chewy", "doublechoc", "sable"], finish: true,
+  { id: "flakysalt", icon: "🧂", label: "Flaky salt (finish)", styles: ["hotrod", "chewy", "doublechoc", "sable"], finish: true, load: 0.5,
     short: "pinched on warm, out of the oven",
     prep: "Maldon or fleur de sel pinched onto the cookies as they come out of the oven, while the surface is still tacky enough to hold it. The salt crystals stay crunchy and pop against the sweet — don't bake it in, or it dissolves.",
     prepSteps: ["Use a flaky salt, not table salt", "Pinch on within a minute of pulling them", "Let it stick to the warm, tacky tops"] },
-  { id: "sprinkles", icon: "🌈", label: "Sprinkles", styles: ["sugar"], finish: true,
+  { id: "sprinkles", icon: "🌈", label: "Sprinkles", styles: ["sugar"], finish: true, load: 6,
     short: "pressed on before baking",
     prep: "Press nonpareils or jimmies onto the dough balls before baking (or onto frosting after). Roll the whole ball for full coverage; they don't bleed if you use jimmies rather than soft confetti quins.",
     prepSteps: ["Roll the balls in sprinkles before baking", "Use jimmies (they don't bleed)", "Or save them for frosting after"] },
@@ -677,7 +681,7 @@ function buildSteps(p) {
       why: `Add the egg and vanilla and beat until smooth and emulsified. You're on ${eg.label.toLowerCase()}: ${eggForm === "yolk" ? "yolks bring fat and lecithin (an emulsifier) for a silky, tender, moisture-holding chew" : eggForm === "white" ? "the extra white is protein and water, so it sets firmer and bakes crisper and more cakey" : "whole eggs balance binding and set"} (McGee, eggs).`,
       more: "Scrape the bowl and beat until uniform — a broken emulsion bakes greasy and uneven.",
       ing: [{ k: `Egg — ${eg.label.toLowerCase()}`, g: round(v.egg), note: `~${round(v.egg / EGG_G, 1)} large` },
-        { k: "Vanilla", g: null, note: "1–2 tsp" }] });
+        { k: "Vanilla", g: round(v.vanilla, 1), note: "pure extract" }] });
   }
 
   const cocoaDry = cocoa && cocoa.on ? ` + sifted cocoa (${cocoa.pct}% of flour)` : "";
@@ -691,7 +695,7 @@ function buildSteps(p) {
       { k: "Salt", g: round(v.salt, 1) }] });
 
   if (sablage) {
-    steps.push({ phase: "mix", title: "Bring it together", spec: `${hasEgg ? "add the egg/yolk" : "add a splash of cream or water"} · press just until it clumps into a dough`,
+    steps.push({ phase: "mix", title: "Bring it together", spec: `${hasEgg ? "add the egg/yolk" : "add up to 1 tbsp (15g) cold cream or water, a little at a time"} · press just until it clumps into a dough`,
       why: "Add the liquid to the sandy mix and press — don't knead — just until it comes together into a dough. Any real kneading now starts building the gluten you worked to avoid, turning short into tough.",
       more: "Pat into a disc, wrap, and chill before rolling or slicing." });
   } else {
@@ -705,9 +709,7 @@ function buildSteps(p) {
     steps.push({ phase: "mix", title: "Fold in the add-ins", spec: folded.map((t) => t.label).join(" · "),
       why: lines,
       more: "Fold by hand just to distribute — overmixing now both toughens the dough and smears the chocolate. Reserve a few chips/nuts to press onto the tops.",
-      ing: folded.map((t) => t.id === "chips"
-        ? { k: `${t.icon} ${t.label}`, g: round(v.chips) }
-        : { k: `${t.icon} ${t.label}`, g: null, note: "to taste" }) });
+      ing: folded.map((t) => ({ k: `${t.icon} ${t.label}`, g: round(v.addinG[t.id] || 0, t.load < 5 ? 1 : 0), note: `${t.load}% of flour` })) });
   }
 
   // Chill / rest
@@ -757,7 +759,7 @@ function buildSteps(p) {
   steps.push({ phase: "cool", title: "Cool on the sheet, then move", spec: "5 min on the hot sheet · then a wire rack",
     why: `Let them sit 5 minutes on the hot sheet: carryover heat finishes the underdone centre and the cookie sets enough to lift without tearing. Then move to a rack so the bottoms don't steam soft against the pan.${finishLine}`,
     more: "For the chewiest result, underbake slightly and let the carryover do the rest. They keep best airtight; a slice of bread in the tub keeps soft cookies soft.",
-    ing: finishers.map((t) => ({ k: `${t.icon} ${t.label.replace(" (finish)", "")}`, g: null, note: "to finish" })) });
+    ing: finishers.map((t) => ({ k: `${t.icon} ${t.label.replace(" (finish)", "")}`, g: round(v.addinG[t.id] || 0, t.load < 5 ? 1 : 0), note: `${t.load}% of flour` })) });
 
   return steps.map((s, i) => ({ ...s, n: String(i + 1).padStart(2, "0") }));
 }
@@ -916,14 +918,22 @@ export default function CookieBuildSheet() {
   // levers within it) OR freestyle (boundStyle === null → the model is free to
   // choose the identity too). See src/cookie-model.js.
   const [boundStyle, setBoundStyle] = useState(DEFAULT_STYLE);
+  // add-ins: declared before the solve because thirsty ones (oats/coconut/raisins)
+  // bind free water and so change the formula the sliders solve to. `addinLoads`
+  // is the selected loads as fractions of flour, fed into the inverse model.
+  const [addinSel, setAddinSel] = useState({ chips: true, flakysalt: true });
+  const addinLoads = useMemo(() => {
+    const o = {};
+    for (const a of ADDINS) if (addinSel[a.id] && a.load != null) o[a.id] = a.load / 100;
+    return o;
+  }, [addinSel]);
   const solved = useMemo(() => boundStyle
-    ? solveWithin(q, identityOf(STYLE_BY_ID[boundStyle].set), { scoop })
-    : solveConforming(q, STYLES, { scoop }), [q, scoop, boundStyle]);
+    ? solveWithin(q, identityOf(STYLE_BY_ID[boundStyle].set), { scoop, addins: addinLoads })
+    : solveConforming(q, STYLES, { scoop, addins: addinLoads }), [q, scoop, boundStyle, addinLoads]);
   const recipe = solved.recipe;
   const { sugarPct, brownPct, butterPct, eggPct, flourIdx, leaven,
     sodaShare, saltPct, chillIdx, ovenF, method, eggForm } = recipe;
-  // add-ins + cocoa
-  const [addinSel, setAddinSel] = useState({ chips: true, flakysalt: true });
+  // cocoa
   const [cocoaMode, setCocoaMode] = useState("natural"); // natural | dutch
   const [cocoaPct, setCocoaPct] = useState(25);           // cocoa as % of flour
   const verbosity = 1; // steps are always succinct — the verbosity control was dropped
@@ -1056,11 +1066,22 @@ export default function CookieBuildSheet() {
     const salt = f * (saltPct / 100);
     const soda = leaven ? f * (SODA_MAX / 100) * (sodaShare / 100) * leavenEnvFactor : 0;
     const powder = leaven ? f * (POWDER_MAX / 100) * (1 - sodaShare / 100) * leavenEnvFactor : 0;
-    const chips = addinSel.chips ? f * (CHIPS_PCT / 100) : 0;
+    // Every selected add-in carries a baker's-% `load`, so it gets a real weight.
+    // Cocoa is a swap (already in cocoaLoad); finishers sit on top, not in the dough.
+    const addinG = {};
+    let addinDoughMass = 0, addinFinishMass = 0;
+    for (const a of selectedAddins) {
+      if (a.id === "cocoa" || a.load == null) continue;
+      const g = f * (a.load / 100);
+      addinG[a.id] = g;
+      if (a.finish) addinFinishMass += g; else addinDoughMass += g;
+    }
+    const chips = addinG.chips || 0;
+    const vanilla = f * (VANILLA_PCT / 100);
     const flourMass = f - cocoaLoad;
-    const doughWeight = flourMass + cocoaLoad + totalSugar + butter + egg + soda + powder + chips;
-    return { totalSugar, brown, white, butter, egg, salt, soda, powder, chips, flourMass, doughWeight };
-  }, [f, sugarPctEff, brownPct, butterPct, eggPct, saltPct, leaven, sodaShare, addinSel.chips, cocoaLoad, leavenEnvFactor]);
+    const doughWeight = flourMass + cocoaLoad + totalSugar + butter + egg + soda + powder + vanilla + addinDoughMass;
+    return { totalSugar, brown, white, butter, egg, salt, soda, powder, chips, vanilla, addinG, addinFinishMass, flourMass, doughWeight };
+  }, [f, sugarPctEff, brownPct, butterPct, eggPct, saltPct, leaven, sodaShare, addinSel, cocoaLoad, leavenEnvFactor]);
 
   const specialDef = special ? SPECIAL_BY_ID[special] : null;
   const specialRecipe = useMemo(() => (specialDef ? specialDef.recipe(f) : null), [special, f]);
@@ -1080,17 +1101,15 @@ export default function CookieBuildSheet() {
       ...(eggPct > 0 ? [{ k: `Egg — ${EGG_FORMS[eggForm].label.toLowerCase()}`, g: round(v.egg), pct: round(eggPct, 1), note: `~${eggCount} large · ${EGG_FORMS[eggForm].short}` }] : []),
       ...(leaven && v.soda > 0 ? [{ k: "Baking soda", g: round(v.soda, 1), pct: sodaPct, accent: true, note: envOn && leavenEnvFactor < 1 ? `−${round((1 - leavenEnvFactor) * 100)}% for altitude — thin air over-puffs` : "needs acid · browns & spreads" }] : []),
       ...(leaven && v.powder > 0 ? [{ k: "Baking powder", g: round(v.powder, 1), pct: powderPct, note: envOn && leavenEnvFactor < 1 ? `−${round((1 - leavenEnvFactor) * 100)}% for altitude` : "self-acting · puffs & pales" }] : []),
-      ...(!leaven ? [{ k: "Chemical leavening", g: null, pct: null, note: "none — short/shortbread style" }] : []),
+      ...(!leaven ? [{ k: "Chemical leavening", g: 0, pct: 0, note: "none — short/shortbread style" }] : []),
       { k: "Salt", g: round(v.salt, 1), pct: round(saltPct, 1), note: "seasons · sharpens the sweet" },
-      { k: "Vanilla", g: null, pct: null, note: "1–2 tsp, to taste" },
+      { k: "Vanilla", g: round(v.vanilla, 1), pct: VANILLA_PCT, note: "pure extract (~½ tsp ≈ 2g)" },
     ] },
     ...(selectedAddins.some((a) => !a.finish && a.id !== "cocoa") ? [{ title: "Add-ins", caption: "folded into the dough", items: selectedAddins.filter((a) => !a.finish && a.id !== "cocoa").map((t) => (
-      t.id === "chips"
-        ? { k: `${t.icon} ${t.label}`, g: round(v.chips), pct: CHIPS_PCT, accent: true, note: t.short }
-        : { k: `${t.icon} ${t.label}`, g: null, pct: null, note: t.short }
+      { k: `${t.icon} ${t.label}`, g: round(v.addinG[t.id] || 0, t.load < 5 ? 1 : 0), pct: t.load, accent: t.id === "chips", note: t.short }
     )) }] : []),
     ...(selectedAddins.some((a) => a.finish) ? [{ title: "Finish", caption: "on top, at or after the bake", brine: true, items: selectedAddins.filter((a) => a.finish).map((t) => (
-      { k: `${t.icon} ${t.label.replace(" (finish)", "")}`, g: null, pct: null, accent: true, note: t.short }
+      { k: `${t.icon} ${t.label.replace(" (finish)", "")}`, g: round(v.addinG[t.id] || 0, t.load < 5 ? 1 : 0), pct: t.load, accent: true, note: t.short }
     )) }] : []),
   ];
 
@@ -1708,7 +1727,7 @@ export default function CookieBuildSheet() {
               ))}
             </div>
             <div style={{ fontSize: 12, color: C.inkSoft, fontStyle: "italic", marginTop: 11 }}>
-              Mass-balance of the formula's ingredients (USDA FoodData Central densities){specialRecipe ? "" : `, split across ≈${cookieCount} ${sc.label.toLowerCase()} cookies of ${sc.g}g raw dough`}. Add-ins priced "to taste" aren't counted; baking drives off some water.
+              Mass-balance of the formula's ingredients (USDA FoodData Central densities){specialRecipe ? "" : `, split across ≈${cookieCount} ${sc.label.toLowerCase()} cookies of ${sc.g}g raw dough`}. Every add-in is now weighed in; trace aromatics (vanilla, zest, spice, espresso) carry negligible macros. Baking drives off some water.
             </div>
           </div>
         )}

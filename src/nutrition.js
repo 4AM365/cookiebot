@@ -31,6 +31,15 @@ export const MACROS = {
   salt:          { kcal: 0,   carb: 0,    fat: 0,    protein: 0,    sugar: 0 },
   chocolateChips:{ kcal: 480, carb: 63.9, fat: 28.0, protein: 4.2,  sugar: 53.9 },
   almond:        { kcal: 579, carb: 21.6, fat: 49.9, protein: 21.2, sugar: 4.4 },
+  walnut:        { kcal: 654, carb: 13.7, fat: 65.2, protein: 15.2, sugar: 2.6 },
+  oats:          { kcal: 389, carb: 66.3, fat: 6.9,  protein: 16.9, sugar: 1.0 },
+  raisins:       { kcal: 299, carb: 79.2, fat: 0.5,  protein: 3.1,  sugar: 59.2 },
+  peanutButter:  { kcal: 588, carb: 19.6, fat: 50.4, protein: 25.1, sugar: 9.2 },
+  coconut:       { kcal: 660, carb: 23.7, fat: 64.5, protein: 6.9,  sugar: 7.4 },
+  // toffee bits and sprinkles are composite confections with no single clean FDC
+  // entry — these are representative butter-sugar / sugar-shell estimates.
+  toffee:        { kcal: 480, carb: 64.0, fat: 24.0, protein: 1.3,  sugar: 63.0 },
+  sprinkles:     { kcal: 389, carb: 90.0, fat: 2.5,  protein: 0.0,  sugar: 75.0 },
 };
 
 // USDA FoodData Central ids backing each density.
@@ -46,6 +55,12 @@ export const FDC_IDS = {
   bakingPowder: "172805",   // Leavening agents, baking powder, double-acting
   chocolateChips: "174836", // Chocolate, semisweet, made with cocoa butter (chips)
   almond: "170567",         // Nuts, almonds, raw
+  walnut: "170187",         // Nuts, walnuts, English
+  oats: "169705",           // Oats (rolled, dry)
+  raisins: "168165",        // Raisins, seedless
+  peanutButter: "172470",   // Peanut butter, smooth style
+  coconut: "170170",        // Nuts, coconut meat, dried (desiccated), not sweetened
+  // toffee, sprinkles: composite estimates, no single FDC source (see MACROS note)
 };
 
 // Map a free-text ingredient name (the `k` field used across the build sheet)
@@ -53,10 +68,18 @@ export const FDC_IDS = {
 // (e.g. "almond flour" → almond before the generic "flour" rule).
 const RULES = [
   [/\balmond/i,                 "almond"],
+  [/peanut/i,                   "peanutButter"], // before the generic butter rule
+  [/walnut|pecan/i,             "walnut"],
+  [/coconut/i,                  "coconut"],
+  [/raisin|dried fruit|cranberr|cherr/i, "raisins"],
+  [/\boats?\b|rolled oat/i,     "oats"],         // before the generic flour/oat rule
+  [/toffee/i,                   "toffee"],
+  [/sprinkle/i,                 "sprinkles"],
   [/baking soda/i,              "bakingSoda"],
   [/baking powder/i,            "bakingPowder"],
   [/yolk/i,                     "eggYolk"],
-  [/egg\s*white|whites? added|whites?\b/i, "eggWhite"],
+  // Must stay anchored to "egg" — a bare /whites?\b/ also catches "White sugar".
+  [/egg.*white|whites? added/i, "eggWhite"],
   [/\begg/i,                    "eggWhole"],
   [/brown sugar/i,              "brownSugar"],
   [/cocoa/i,                    "cocoa"],

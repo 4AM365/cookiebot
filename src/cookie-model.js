@@ -32,6 +32,10 @@ export const CITES = {
   chemical_leavening_pH:       ["bressanini-scienza-della-pasticceria:0088:00:a630897c"],
   egg_protein_set:             ["bressanini-scienza-della-pasticceria:0030:00:f9449048"],
   creaming_aeration:           ["bressanini-scienza-della-pasticceria:0092:00:08b423cc"],
+  // Dry starch/fibre add-ins (oats, coconut) soak up free water the same way
+  // flour's protein & starch do; plumped fruit instead gives moisture back.
+  addin_water_absorption:      ["bressanini-scienza-della-pasticceria:0075:00:7d1dcdb1",
+                                "bressanini-scienza-della-pasticceria:0015:00:acb7b1a5"],
 };
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -58,6 +62,11 @@ const EGGFORM = {
   yolk:  { water: 0.55, yolkFat: 1.0 },
   white: { water: 1.25, yolkFat: -0.5 },
 };
+// Water bound per unit of add-in load (both as fractions of flour). Dry, thirsty
+// add-ins sequester free water (stiffer dough, less spread, chewier); plumped
+// dried fruit returns a little. Everything not listed (chips, nuts, toffee, pb)
+// is water-inert here. [addin_water_absorption]
+const ADDIN_WATER = { oats: 0.30, coconut: 0.25, raisins: -0.10 };
 
 // ============================================================================
 // LAYER 1 — recipe → latent physical state (constitutive equations)
@@ -83,6 +92,11 @@ export function state(r) {
   const brownMoist  = Sb * 0.12;                          // brown holds moisture/invert  [invert_humectancy]
   const sugarBind   = 0.18 * Sw + 0.35 * Sb;              // sugar is hygroscopic, ties up water [sugar_sweetness_hygroscopic]
   const flourAbsorb = 0.9 * prot + 0.04;                  // protein/starch soak
+  // dry add-ins (oats, coconut) soak free water; plumped fruit returns a little.
+  // Kept OUT of freeWater so it doesn't perturb the calibrated gluten/dry proxies;
+  // its sensory effect is applied directly in the observation layer below.
+  let addinSoak = 0;
+  if (r.addins) for (const k in ADDIN_WATER) addinSoak += ADDIN_WATER[k] * (r.addins[k] || 0);
   const freeWater   = waterEgg + waterButter + brownMoist - sugarBind - flourAbsorb;
 
   // --- fat available to lubricate & flow, and air whipped in ----------------
@@ -109,7 +123,7 @@ export function state(r) {
   //                                              ^ whites set faster/firmer [egg_protein_set]
 
   return { S, Sb, Sw, B, E, freeWater, fatFree, air, gluten, pH, gas, sugarMelt,
-    setRate, dissolved, soda, acid, yolkFat: ef.yolkFat };
+    setRate, dissolved, soda, acid, yolkFat: ef.yolkFat, addinSoak };
 }
 
 // ============================================================================
@@ -121,17 +135,20 @@ export function qualities(r) {
   const dry = 1 - sat(s.freeWater + 0.4); // a dryness proxy: low free water → dry crumb
 
   // SPREAD: free fat + melting sugar + free water push it out; gluten, a fast
-  // set, and a cold rest hold it in.
+  // set, and a cold rest hold it in. Thirsty add-ins bind free water and add
+  // bulk, so they cut spread (an oatmeal cookie bakes thicker). [addin_water_absorption]
   const spread = lin(
     0.95 * s.fatFree + 0.80 * s.sugarMelt + 0.55 * s.freeWater
-      - 1.30 * s.gluten - 0.45 * s.setRate - 0.10 * chillIdx,
+      - 1.30 * s.gluten - 0.45 * s.setRate - 0.10 * chillIdx - 0.55 * s.addinSoak,
     -0.15, 1.0);
 
   // CRISPNESS (chew↔crisp axis): white sugar drying to a glassy snap & low
   // residual water = crisp; gluten + retained water + brown humectancy = chew.
+  // Oats/coconut hold onto their soaked water and add bran structure, so they
+  // pull toward chew rather than crisp. [addin_water_absorption]
   const crispScore =
       (0.85 * s.Sw + 0.75 * dry + 0.35 * ((r.ovenF - 350) / 50))
-    - (1.00 * s.gluten + 0.85 * (1 - dry) + 0.65 * s.Sb + 0.30 * Math.max(0, s.yolkFat));
+    - (1.00 * s.gluten + 0.85 * (1 - dry) + 0.65 * s.Sb + 0.30 * Math.max(0, s.yolkFat) + 0.90 * s.addinSoak);
   const crispness = lin(crispScore, -0.85, 0.85);
 
   // CAKEY: pale, tall puff. Baking POWDER lifts and holds (double-acting, sets
@@ -141,7 +158,7 @@ export function qualities(r) {
   const powderLift = r.leaven ? (0.30 + 0.70 * (1 - r.sodaShare / 100)) : 0;
   const cakey = lin(
     0.95 * powderLift + 0.55 * s.air + 0.15 * s.gluten + 0.40 * ((r.ovenF - 300) / 100)
-      - 0.90 * s.fatFree - 0.70 * s.sugarMelt - 0.30 * s.freeWater,
+      - 0.90 * s.fatFree - 0.70 * s.sugarMelt - 0.30 * s.freeWater - 0.25 * s.addinSoak,
     -0.30, 1.05);
 
   // BROWNING: alkaline pH + reducing sugars (brown/invert) + melt + heat + the
@@ -258,7 +275,9 @@ function roundRecipe(r) {
 // or method to fake a better fit.
 export function solveWithin(target, identity, opts = {}) {
   const scoop = opts.scoop || "standard";
-  const start = { ...PRIOR, ...identity, scoop };
+  // add-ins in the bowl (oats/coconut/raisins) shift the achievable qualities, so
+  // the levers must solve *around* them — carry their loads through the descent.
+  const start = { ...PRIOR, ...identity, scoop, addins: opts.addins || {} };
   const r = roundRecipe(descend(start, target, opts.weights));
   return { recipe: r, qualities: qualities(r), residual: loss(r, target, opts.weights) };
 }
@@ -314,7 +333,7 @@ export function solve(targets, opts = {}) {
   for (const method of DISCRETE.method) {
     for (const flourIdx of DISCRETE.flourIdx) {
       for (const eggForm of DISCRETE.eggForm) {
-        const start = { ...PRIOR, method, flourIdx, eggForm, leaven: true, scoop };
+        const start = { ...PRIOR, method, flourIdx, eggForm, leaven: true, scoop, addins: opts.addins || {} };
         const r = descend(start, targets, weights);
         const L = loss(r, targets, weights);
         if (L < bestL) { bestL = L; bestRecipe = r; }
@@ -324,7 +343,7 @@ export function solve(targets, opts = {}) {
   // also try leaven OFF for very short/dense, low-cakey targets
   if ((targets.cakey ?? 30) < 18) {
     for (const method of ["sable", "creamed"]) {
-      const start = { ...PRIOR, method, flourIdx: bestRecipe.flourIdx, eggForm: bestRecipe.eggForm, leaven: false, scoop };
+      const start = { ...PRIOR, method, flourIdx: bestRecipe.flourIdx, eggForm: bestRecipe.eggForm, leaven: false, scoop, addins: opts.addins || {} };
       const r = descend(start, targets, weights);
       const L = loss(r, targets, weights);
       if (L < bestL) { bestL = L; bestRecipe = r; }
